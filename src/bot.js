@@ -95,26 +95,75 @@ async function runBatchStrategy({ client, config, snapshot }) {
 
   const updatedBatches = JSON.parse(JSON.stringify(batches));
   result.orderResults = [];
+  let previousPortfolio = snapshot.portfolio;
 
   for (const action of plan.actions) {
     const orderResult = await client.privatePost("private/create-order", action.order);
+    await sleep(1500);
+    const balanceAfterOrder = await client.privatePost("private/user-balance", {});
+    const balancesAfterOrder = extractBalances(balanceAfterOrder);
+    const nextPortfolio = portfolioValue({
+      balances: balancesAfterOrder,
+      baseAsset: config.baseAsset,
+      quoteAsset: config.quoteAsset,
+      price: snapshot.price
+    });
+    const fill = inferFillFromPortfolioDelta({
+      action,
+      before: previousPortfolio,
+      after: nextPortfolio,
+      fallbackPrice: snapshot.price
+    });
+
     result.orderResults.push({
       action,
-      orderResult
+      orderResult,
+      fill,
+      portfolioAfterOrder: nextPortfolio
     });
 
     applyFilledBatchAction({
       batches: updatedBatches,
       action,
-      fillPrice: snapshot.price,
-      filledQuantity: Number(action.order.quantity),
+      fillPrice: fill.price,
+      filledQuantity: fill.quantity,
       now: snapshot.at
     });
+    previousPortfolio = nextPortfolio;
   }
 
   saveBatches(config.logDir, updatedBatches);
   result.openBatchesAfter = updatedBatches.filter((batch) => batch.status === "OPEN").length;
   return result;
+}
+
+function inferFillFromPortfolioDelta({ action, before, after, fallbackPrice }) {
+  const baseDelta = after.baseTotal - before.baseTotal;
+  const quoteDelta = after.quoteTotal - before.quoteTotal;
+
+  if (action.order.side === "BUY") {
+    const quantity = baseDelta > 0 ? baseDelta : Number(action.order.quantity);
+    const quoteSpent = quoteDelta < 0 ? Math.abs(quoteDelta) : quantity * fallbackPrice;
+    return {
+      quantity,
+      price: quoteSpent / quantity,
+      baseDelta,
+      quoteDelta
+    };
+  }
+
+  const quantity = baseDelta < 0 ? Math.abs(baseDelta) : Number(action.order.quantity);
+  const quoteReceived = quoteDelta > 0 ? quoteDelta : quantity * fallbackPrice;
+  return {
+    quantity,
+    price: quoteReceived / quantity,
+    baseDelta,
+    quoteDelta
+  };
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function watch() {
