@@ -98,6 +98,14 @@ async function runBatchStrategy({ client, config, snapshot }) {
   let previousPortfolio = snapshot.portfolio;
 
   for (const action of plan.actions) {
+    if (!action.order) {
+      result.orderResults.push({
+        action,
+        skipped: true
+      });
+      continue;
+    }
+
     const orderResult = await client.privatePost("private/create-order", action.order);
     await sleep(1500);
     const balanceAfterOrder = await client.privatePost("private/user-balance", {});
