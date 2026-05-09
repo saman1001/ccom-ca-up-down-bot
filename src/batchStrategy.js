@@ -27,6 +27,18 @@ export function buildBatchPlan({ batches, price, config, now = new Date().toISOS
 
   for (const batch of batches.filter((item) => item.status === "OPEN")) {
     if (price <= batch.averagePrice * averageDownMultiplier) {
+      const remainingCapacity = Math.max(0, config.maxBatchQuantity - batch.quantity);
+      const quantityToBuy = Math.min(batchQuantity, remainingCapacity);
+      if (quantityToBuy <= 0) {
+        actions.push({
+          kind: "HOLD_MAX_SIZE",
+          batchId: batch.id,
+          order: null,
+          reason: `Batch already reached max size of ${config.maxBatchQuantity} ${config.baseAsset}.`
+        });
+        continue;
+      }
+
       actions.push({
         kind: "AVERAGE_DOWN",
         batchId: batch.id,
@@ -34,7 +46,7 @@ export function buildBatchPlan({ batches, price, config, now = new Date().toISOS
           instrument_name: config.instrument,
           side: "BUY",
           type: "MARKET",
-          quantity: String(batchQuantity)
+          quantity: trimQuantity(quantityToBuy)
         },
         reason: `Current price is at least ${config.averageDownDropPct}% below batch average.`
       });
@@ -129,6 +141,7 @@ export function applyFilledBatchAction({ batches, action, fillPrice, filledQuant
 export function applyDryRunBatchPlan({ batches, plan, price, now }) {
   const simulated = JSON.parse(JSON.stringify(batches));
   for (const action of plan.actions) {
+    if (!action.order) continue;
     applyFilledBatchAction({
       batches: simulated,
       action,
