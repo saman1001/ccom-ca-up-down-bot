@@ -8,6 +8,7 @@ Bezpecny zaklad Crypto.com Exchange bota, ktory vie:
 - zapisovat snapshoty do `logs/snapshots.jsonl`,
 - vytvorit signal `BUY`, `SELL` alebo `HOLD`,
 - viest samostatne davky v `logs/batches.json`,
+- generovat HTML dashboard/statistiky do `reports/dashboard.html`,
 - v predvolenom rezime iba simulovat obchod.
 
 Crypto.com agent skill je ulozeny v `crypto-com-exchange-skill/`. Tento projekt z neho pouziva autentifikacny postup a endpointy, ale samotny bot je samostatny Node.js skript.
@@ -35,6 +36,28 @@ Ak mas dostupne aj `npm`, mozes pouzit aj:
 npm run once
 npm run watch
 ```
+
+## Dashboard a statistiky
+
+Zo suborov `logs/batches.json` a `logs/snapshots.jsonl` sa da vygenerovat staticky HTML dashboard:
+
+```powershell
+node src/report.js
+```
+
+alebo:
+
+```powershell
+npm run report
+```
+
+Vystup:
+
+```text
+reports/dashboard.html
+```
+
+Dashboard ukazuje aktualne portfolio, otvorene davky, priemernu cenu, realizovany a nerealizovany P/L, graf ceny/portfolia, posledne ordery a tabulku davok.
 
 ## Obchodovanie
 
