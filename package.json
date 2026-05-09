@@ -1,0 +1,15 @@
+{
+  "name": "ccom-ca-up-down-bot",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Safe dry-run Crypto.com Exchange up/down portfolio monitor and trading bot.",
+  "type": "module",
+  "scripts": {
+    "once": "node src/bot.js once",
+    "watch": "node src/bot.js watch",
+    "check": "node src/bot.js check"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
