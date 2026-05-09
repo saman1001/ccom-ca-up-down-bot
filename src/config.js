@@ -49,9 +49,14 @@ export function loadConfig() {
     instrument: process.env.INSTRUMENT || "BTC_USD",
     baseAsset: process.env.BASE_ASSET || "BTC",
     quoteAsset: process.env.QUOTE_ASSET || "USD",
+    strategy: process.env.STRATEGY || "updown",
     buyDropPct: numberEnv("BUY_DROP_PCT", 3),
     sellRisePct: numberEnv("SELL_RISE_PCT", 4),
     tradeNotional: numberEnv("TRADE_NOTIONAL", 25),
+    batchQuantity: numberEnv("BATCH_QUANTITY", 20),
+    averageDownDropPct: numberEnv("AVERAGE_DOWN_DROP_PCT", 10),
+    takeProfitRisePct: numberEnv("TAKE_PROFIT_RISE_PCT", 5),
+    buyBaseBatchEveryRun: boolEnv("BUY_BASE_BATCH_EVERY_RUN", true),
     checkIntervalMinutes: numberEnv("CHECK_INTERVAL_MINUTES", 60),
     logDir: path.resolve("logs")
   };
