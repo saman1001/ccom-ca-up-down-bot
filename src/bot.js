@@ -3,6 +3,13 @@ import { CryptoComClient } from "./cryptoComClient.js";
 import { extractBalances, extractTickerPrice, portfolioValue } from "./portfolio.js";
 import { buildOrder, decide } from "./strategy.js";
 import { appendSnapshot, ensureLogDir, readPreviousSnapshot } from "./storage.js";
+import {
+  applyDryRunBatchPlan,
+  applyFilledBatchAction,
+  buildBatchPlan,
+  loadBatches,
+  saveBatches
+} from "./batchStrategy.js";
 
 async function runOnce() {
   const config = loadConfig();
@@ -31,6 +38,14 @@ async function runOnce() {
     price,
     portfolio
   };
+
+  if (config.strategy === "batches") {
+    const result = await runBatchStrategy({ client, config, snapshot });
+    appendSnapshot(config.logDir, result);
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
   const signal = decide({ current: snapshot, previous, config });
   const order = buildOrder({ signal, snapshot, config });
 
@@ -48,6 +63,58 @@ async function runOnce() {
 
   appendSnapshot(config.logDir, result);
   console.log(JSON.stringify(result, null, 2));
+}
+
+async function runBatchStrategy({ client, config, snapshot }) {
+  const batches = loadBatches(config.logDir);
+  const plan = buildBatchPlan({
+    batches,
+    price: snapshot.price,
+    config,
+    now: snapshot.at
+  });
+
+  const result = {
+    ...snapshot,
+    strategy: "batches",
+    openBatchesBefore: batches.filter((batch) => batch.status === "OPEN").length,
+    plan,
+    dryRun: config.dryRun,
+    tradingEnabled: config.enableTrading
+  };
+
+  if (config.dryRun || !config.enableTrading) {
+    result.simulatedBatches = applyDryRunBatchPlan({
+      batches,
+      plan,
+      price: snapshot.price,
+      now: snapshot.at
+    });
+    return result;
+  }
+
+  const updatedBatches = JSON.parse(JSON.stringify(batches));
+  result.orderResults = [];
+
+  for (const action of plan.actions) {
+    const orderResult = await client.privatePost("private/create-order", action.order);
+    result.orderResults.push({
+      action,
+      orderResult
+    });
+
+    applyFilledBatchAction({
+      batches: updatedBatches,
+      action,
+      fillPrice: snapshot.price,
+      filledQuantity: Number(action.order.quantity),
+      now: snapshot.at
+    });
+  }
+
+  saveBatches(config.logDir, updatedBatches);
+  result.openBatchesAfter = updatedBatches.filter((batch) => batch.status === "OPEN").length;
+  return result;
 }
 
 async function watch() {
