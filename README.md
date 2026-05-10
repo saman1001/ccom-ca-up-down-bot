@@ -59,11 +59,7 @@ V `systemd` service pridaj:
 Environment=NODE_OPTIONS=--dns-result-order=ipv4first
 ```
 
-Crypto.com whitelist pre nas VPS:
-
-```text
-173.212.252.14
-```
+Do Crypto.com whitelistu pridaj verejnu IPv4 adresu VPS. Konkretne IP adresy neukladaj do verejneho repozitara.
 
 ## Dashboard a statistiky
 
