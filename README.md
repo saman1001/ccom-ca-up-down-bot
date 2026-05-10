@@ -37,6 +37,34 @@ npm run once
 npm run watch
 ```
 
+## VPS a IPv4
+
+Na VPS s IPv6 treba pri Crypto.com IP whiteliste vynutit IPv4. Inak moze Node odoslat request cez IPv6 a burza odmietne private API request, aj ked je IPv4 adresa vo whiteliste.
+
+Jednorazove spustenie:
+
+```bash
+NODE_OPTIONS=--dns-result-order=ipv4first node src/bot.js once
+```
+
+Watch rezim:
+
+```bash
+NODE_OPTIONS=--dns-result-order=ipv4first node src/bot.js watch
+```
+
+V `systemd` service pridaj:
+
+```ini
+Environment=NODE_OPTIONS=--dns-result-order=ipv4first
+```
+
+Crypto.com whitelist pre nas VPS:
+
+```text
+173.212.252.14
+```
+
 ## Dashboard a statistiky
 
 Zo suborov `logs/batches.json` a `logs/snapshots.jsonl` sa da vygenerovat staticky HTML dashboard:
