@@ -113,6 +113,7 @@ Nastavenie `STRATEGY=batches` robi davkovu strategiu:
 - kazdy beh kupi zakladnu davku `BATCH_QUANTITY`, predvolene `20 CRO`,
 - ak aktualna cena klesne aspon o `AVERAGE_DOWN_DROP_PCT` pod priemer otvorenej davky, dokupi do tej davky dalsich `20 CRO`,
 - jedna davka sa dokupuje najviac do `MAX_BATCH_QUANTITY`, predvolene `500 CRO`; potom uz len caka na predaj,
+- novy zakladny nakup sa nevykona, ak posledny `BASE_BUY` je mladsi nez `BASE_BUY_COOLDOWN_MINUTES`,
 - ak aktualna cena stupne aspon o `TAKE_PROFIT_RISE_PCT` nad priemer otvorenej davky, preda celu davku,
 - kazda davka si drzi vlastne mnozstvo, priemer a historiu nakupov/predajov.
 
