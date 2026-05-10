@@ -37,10 +37,13 @@
 
 ## Objednavky
 
+- [ ] Pred kazdym orderom nacitat pravidla instrumentu z burzy: minimalna velkost orderu, quantity decimals, price decimals a notional limity
+- [ ] Formatovat a zaokruhlovat `quantity` podla pravidiel instrumentu, aby `CRO_USD` neposielal desatinne mnozstva ako `19.9`
+- [ ] Pri zaokruhlovani predaja evidovat zostatok ako fee/dust, aby sa neskreslil skutocny zisk davky
+- [ ] Pridat kontrolu minimalnej velkosti orderu podla instrumentu
 - [ ] Pridat limit order rezim namiesto market orderov
 - [ ] Pridat fallback: ak sa limit order nevyplni do X minut, zrusit alebo upravit cenu
 - [ ] Lepsie pracovat s ciastocnymi fillmi priamo cez order/trade history
-- [ ] Pridat kontrolu minimalnej velkosti orderu podla instrumentu
 
 ## Reporty a statistiky
 
