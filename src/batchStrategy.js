@@ -66,23 +66,50 @@ export function buildBatchPlan({ batches, price, config, now = new Date().toISOS
   }
 
   if (config.buyBaseBatchEveryRun) {
-    actions.push({
-      kind: "BASE_BUY",
-      batchId: null,
-      order: {
-        instrument_name: config.instrument,
-        side: "BUY",
-        type: "MARKET",
-        quantity: String(batchQuantity)
-      },
-      reason: "Scheduled base batch buy."
-    });
+    const lastBaseBuy = findLastBaseBuy(batches);
+    const cooldownMs = Math.max(0, config.baseBuyCooldownMinutes) * 60 * 1000;
+    const lastBaseBuyAt = lastBaseBuy ? new Date(lastBaseBuy.at).getTime() : 0;
+    const nowMs = new Date(now).getTime();
+
+    if (lastBaseBuy && Number.isFinite(lastBaseBuyAt) && nowMs - lastBaseBuyAt < cooldownMs) {
+      actions.push({
+        kind: "SKIP_BASE_BUY_COOLDOWN",
+        batchId: null,
+        order: null,
+        reason: `Last base buy is newer than ${config.baseBuyCooldownMinutes} minutes.`
+      });
+    } else {
+      actions.push({
+        kind: "BASE_BUY",
+        batchId: null,
+        order: {
+          instrument_name: config.instrument,
+          side: "BUY",
+          type: "MARKET",
+          quantity: String(batchQuantity)
+        },
+        reason: "Scheduled base batch buy."
+      });
+    }
   }
 
   return {
     at: now,
     actions
   };
+}
+
+function findLastBaseBuy(batches) {
+  let latest = null;
+  for (const batch of batches) {
+    for (const buy of batch.buys || []) {
+      if (buy.reason !== "BASE_BUY") continue;
+      if (!latest || new Date(buy.at).getTime() > new Date(latest.at).getTime()) {
+        latest = buy;
+      }
+    }
+  }
+  return latest;
 }
 
 export function applyFilledBatchAction({ batches, action, fillPrice, filledQuantity, now }) {
