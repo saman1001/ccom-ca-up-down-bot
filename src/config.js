@@ -61,6 +61,6 @@ export function loadConfig() {
     baseBuyCooldownMinutes: numberEnv("BASE_BUY_COOLDOWN_MINUTES", numberEnv("CHECK_INTERVAL_MINUTES", 60)),
     dustSellQuantity: numberEnv("DUST_SELL_QUANTITY", 20),
     checkIntervalMinutes: numberEnv("CHECK_INTERVAL_MINUTES", 60),
-    logDir: path.resolve("logs")
+    logDir: path.resolve(process.env.LOG_DIR || "logs")
   };
 }
