@@ -3,6 +3,8 @@ import { CryptoComClient } from "./cryptoComClient.js";
 import { extractBalances, extractTickerPrice, portfolioValue } from "./portfolio.js";
 import { buildOrder, decide } from "./strategy.js";
 import { appendSnapshot, ensureLogDir, readPreviousSnapshot } from "./storage.js";
+import { addDust, loadDustBank, saveDustBank, subtractDust } from "./dustBank.js";
+import { loadInstrumentRules } from "./instrumentRules.js";
 import {
   applyDryRunBatchPlan,
   applyFilledBatchAction,
@@ -67,8 +69,12 @@ async function runOnce() {
 
 async function runBatchStrategy({ client, config, snapshot }) {
   const batches = loadBatches(config.logDir);
+  const dustBank = loadDustBank(config.logDir);
+  const instrumentRules = await loadInstrumentRules(client, config.instrument);
   const plan = buildBatchPlan({
     batches,
+    dustBank,
+    instrumentRules,
     price: snapshot.price,
     config,
     now: snapshot.at
@@ -77,7 +83,9 @@ async function runBatchStrategy({ client, config, snapshot }) {
   const result = {
     ...snapshot,
     strategy: "batches",
+    instrumentRules,
     openBatchesBefore: batches.filter((batch) => batch.status === "OPEN").length,
+    dustBankBefore: dustBank.quantity || 0,
     plan,
     dryRun: config.dryRun,
     tradingEnabled: config.enableTrading
@@ -94,6 +102,7 @@ async function runBatchStrategy({ client, config, snapshot }) {
   }
 
   const updatedBatches = JSON.parse(JSON.stringify(batches));
+  const updatedDustBank = JSON.parse(JSON.stringify(dustBank));
   result.orderResults = [];
   let previousPortfolio = snapshot.portfolio;
 
@@ -137,11 +146,34 @@ async function runBatchStrategy({ client, config, snapshot }) {
       filledQuantity: fill.quantity,
       now: snapshot.at
     });
+
+    if (action.kind === "TAKE_PROFIT" && action.dustQuantity > 0) {
+      addDust(updatedDustBank, {
+        asset: config.baseAsset,
+        quantity: action.dustQuantity,
+        price: fill.price,
+        sourceBatchId: action.batchId,
+        reason: "TAKE_PROFIT_ROUNDING",
+        at: snapshot.at
+      });
+    }
+
+    if (action.kind === "DUST_SELL") {
+      subtractDust(updatedDustBank, {
+        quantity: fill.quantity,
+        price: fill.price,
+        orderId: orderResult.result?.order_id,
+        at: snapshot.at
+      });
+    }
+
     previousPortfolio = nextPortfolio;
   }
 
   saveBatches(config.logDir, updatedBatches);
+  saveDustBank(config.logDir, updatedDustBank);
   result.openBatchesAfter = updatedBatches.filter((batch) => batch.status === "OPEN").length;
+  result.dustBankAfter = updatedDustBank.quantity || 0;
   return result;
 }
 
