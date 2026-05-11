@@ -8,7 +8,6 @@ Bezpecny zaklad Crypto.com Exchange bota, ktory vie:
 - zapisovat snapshoty do `logs/snapshots.jsonl`,
 - vytvorit signal `BUY`, `SELL` alebo `HOLD`,
 - viest samostatne davky v `logs/batches.json`,
-- generovat HTML dashboard/statistiky do `reports/dashboard.html`,
 - v predvolenom rezime iba simulovat obchod.
 
 Crypto.com agent skill je ulozeny v `crypto-com-exchange-skill/`. Tento projekt z neho pouziva autentifikacny postup a endpointy, ale samotny bot je samostatny Node.js skript.
@@ -36,52 +35,6 @@ Ak mas dostupne aj `npm`, mozes pouzit aj:
 npm run once
 npm run watch
 ```
-
-## VPS a IPv4
-
-Na VPS s IPv6 treba pri Crypto.com IP whiteliste vynutit IPv4. Inak moze Node odoslat request cez IPv6 a burza odmietne private API request, aj ked je IPv4 adresa vo whiteliste.
-
-Jednorazove spustenie:
-
-```bash
-NODE_OPTIONS=--dns-result-order=ipv4first node src/bot.js once
-```
-
-Watch rezim:
-
-```bash
-NODE_OPTIONS=--dns-result-order=ipv4first node src/bot.js watch
-```
-
-V `systemd` service pridaj:
-
-```ini
-Environment=NODE_OPTIONS=--dns-result-order=ipv4first
-```
-
-Do Crypto.com whitelistu pridaj verejnu IPv4 adresu VPS. Konkretne IP adresy neukladaj do verejneho repozitara.
-
-## Dashboard a statistiky
-
-Zo suborov `logs/batches.json` a `logs/snapshots.jsonl` sa da vygenerovat staticky HTML dashboard:
-
-```powershell
-node src/report.js
-```
-
-alebo:
-
-```powershell
-npm run report
-```
-
-Vystup:
-
-```text
-reports/dashboard.html
-```
-
-Dashboard ukazuje aktualne portfolio, otvorene davky, priemernu cenu, realizovany a nerealizovany P/L, graf ceny/portfolia, posledne ordery a tabulku davok.
 
 ## Obchodovanie
 
@@ -115,6 +68,8 @@ Nastavenie `STRATEGY=batches` robi davkovu strategiu:
 - jedna davka sa dokupuje najviac do `MAX_BATCH_QUANTITY`, predvolene `500 CRO`; potom uz len caka na predaj,
 - novy zakladny nakup sa nevykona, ak posledny `BASE_BUY` je mladsi nez `BASE_BUY_COOLDOWN_MINUTES`,
 - ak aktualna cena stupne aspon o `TAKE_PROFIT_RISE_PCT` nad priemer otvorenej davky, preda celu davku,
+- pred predajom bot zaokruhli mnozstvo podla pravidiel instrumentu z burzy, aby neposielal neplatne quantity,
+- zostatok po zaokruhleni predaja ide do `logs/dust-bank.json`; ked dust dosiahne `DUST_SELL_QUANTITY`, bot ho vie predat samostatne,
 - kazda davka si drzi vlastne mnozstvo, priemer a historiu nakupov/predajov.
 
 Starsia `STRATEGY=updown` strategia je jednoducha:
