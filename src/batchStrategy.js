@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { formatOrderQuantity, roundDownQuantity } from "./instrumentRules.js";
 
 function batchFilePath(logDir) {
   return path.join(logDir, "batches.json");
@@ -19,7 +20,7 @@ export function saveBatches(logDir, batches) {
   fs.writeFileSync(batchFilePath(logDir), `${JSON.stringify(batches, null, 2)}\n`);
 }
 
-export function buildBatchPlan({ batches, price, config, now = new Date().toISOString() }) {
+export function buildBatchPlan({ batches, dustBank, instrumentRules, price, config, now = new Date().toISOString() }) {
   const batchQuantity = config.batchQuantity;
   const averageDownMultiplier = 1 - Math.abs(config.averageDownDropPct) / 100;
   const takeProfitMultiplier = 1 + Math.abs(config.takeProfitRisePct) / 100;
@@ -51,6 +52,28 @@ export function buildBatchPlan({ batches, price, config, now = new Date().toISOS
         reason: `Current price is at least ${config.averageDownDropPct}% below batch average.`
       });
     } else if (price >= batch.averagePrice * takeProfitMultiplier) {
+      const sellQuantity = roundDownQuantity(batch.quantity, instrumentRules);
+      const dustQuantity = cleanQuantity(batch.quantity - sellQuantity);
+      if (sellQuantity <= 0) {
+        actions.push({
+          kind: "HOLD_UNSELLABLE_DUST",
+          batchId: batch.id,
+          order: null,
+          dustQuantity,
+          reason: "Batch quantity is below the tradable instrument quantity."
+        });
+        continue;
+      }
+      if (isBelowMinNotional(sellQuantity, price, instrumentRules)) {
+        actions.push({
+          kind: "HOLD_BELOW_MIN_NOTIONAL",
+          batchId: batch.id,
+          order: null,
+          reason: "Batch sell value is below the instrument minimum notional."
+        });
+        continue;
+      }
+
       actions.push({
         kind: "TAKE_PROFIT",
         batchId: batch.id,
@@ -58,9 +81,27 @@ export function buildBatchPlan({ batches, price, config, now = new Date().toISOS
           instrument_name: config.instrument,
           side: "SELL",
           type: "MARKET",
-          quantity: trimQuantity(batch.quantity)
+          quantity: formatOrderQuantity(sellQuantity, instrumentRules)
         },
+        dustQuantity,
         reason: `Current price is at least ${config.takeProfitRisePct}% above batch average.`
+      });
+    }
+  }
+
+  if (dustBank?.quantity >= config.dustSellQuantity) {
+    const dustSellQuantity = roundDownQuantity(dustBank.quantity, instrumentRules);
+    if (dustSellQuantity >= config.dustSellQuantity && !isBelowMinNotional(dustSellQuantity, price, instrumentRules)) {
+      actions.push({
+        kind: "DUST_SELL",
+        batchId: null,
+        order: {
+          instrument_name: config.instrument,
+          side: "SELL",
+          type: "MARKET",
+          quantity: formatOrderQuantity(dustSellQuantity, instrumentRules)
+        },
+        reason: `Dust bank reached at least ${config.dustSellQuantity} ${config.baseAsset}.`
       });
     }
   }
@@ -97,6 +138,11 @@ export function buildBatchPlan({ batches, price, config, now = new Date().toISOS
     at: now,
     actions
   };
+}
+
+function isBelowMinNotional(quantity, price, instrumentRules) {
+  const minNotional = Number(instrumentRules.minNotional || 0);
+  return minNotional > 0 && quantity * price < minNotional;
 }
 
 function findLastBaseBuy(batches) {
@@ -156,6 +202,7 @@ export function applyFilledBatchAction({ batches, action, fillPrice, filledQuant
     batch.status = "CLOSED";
     batch.closedAt = now;
     batch.updatedAt = now;
+    batch.dustQuantity = Math.max(0, Number((batch.quantity - filledQuantity).toFixed(12)));
     batch.sells.push({
       at: now,
       quantity: filledQuantity,
@@ -181,5 +228,10 @@ export function applyDryRunBatchPlan({ batches, plan, price, now }) {
 }
 
 function trimQuantity(quantity) {
-  return Number(quantity).toFixed(8).replace(/0+$/, "").replace(/\.$/, "");
+  const value = Number(quantity).toFixed(8);
+  return value.includes(".") ? value.replace(/0+$/, "").replace(/\.$/, "") : value;
+}
+
+function cleanQuantity(quantity) {
+  return Math.max(0, Number(Number(quantity).toFixed(12)));
 }
