@@ -79,3 +79,27 @@ Starsia `STRATEGY=updown` strategia je jednoducha:
 - inak `HOLD`.
 
 Je to len startovacia kostra, nie investicne odporucanie.
+
+## Viac parov naraz
+
+Jeden proces bota obchoduje jeden par. Viac parov naraz spustaj ako viac samostatnych procesov alebo `systemd` sluzieb s vlastnym nastavenim:
+
+- vlastne `INSTRUMENT`, `BASE_ASSET`, `QUOTE_ASSET`,
+- vlastne percenta a velkost davky,
+- vlastny `LOG_DIR`, aby sa nemiesali `batches.json`, `dust-bank.json` a snapshoty.
+
+Priklad:
+
+```env
+INSTRUMENT=CRO_USD
+BASE_ASSET=CRO
+QUOTE_ASSET=USD
+LOG_DIR=logs/cro-usd
+```
+
+```env
+INSTRUMENT=BTC_USD
+BASE_ASSET=BTC
+QUOTE_ASSET=USD
+LOG_DIR=logs/btc-usd
+```
