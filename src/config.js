@@ -59,6 +59,7 @@ export function loadConfig() {
     takeProfitRisePct: numberEnv("TAKE_PROFIT_RISE_PCT", 5),
     buyBaseBatchEveryRun: boolEnv("BUY_BASE_BATCH_EVERY_RUN", true),
     baseBuyCooldownMinutes: numberEnv("BASE_BUY_COOLDOWN_MINUTES", numberEnv("CHECK_INTERVAL_MINUTES", 60)),
+    dustSellQuantity: numberEnv("DUST_SELL_QUANTITY", 20),
     checkIntervalMinutes: numberEnv("CHECK_INTERVAL_MINUTES", 60),
     logDir: path.resolve("logs")
   };
