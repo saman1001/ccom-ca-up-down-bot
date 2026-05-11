@@ -32,7 +32,8 @@ function numberEnv(name, defaultValue) {
 }
 
 export function loadConfig() {
-  loadDotEnv(path.resolve(".env"));
+  const envFile = process.env.ENV_FILE || ".env";
+  loadDotEnv(path.resolve(envFile));
 
   const env = process.env.CCOM_ENV || "production";
   const baseUrl =
@@ -43,6 +44,7 @@ export function loadConfig() {
   return {
     apiKey: process.env.CCOM_API_KEY || "",
     apiSecret: process.env.CCOM_API_SECRET || "",
+    envFile,
     baseUrl,
     dryRun: boolEnv("DRY_RUN", true),
     enableTrading: boolEnv("ENABLE_TRADING", false),
