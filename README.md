@@ -84,20 +84,27 @@ Je to len startovacia kostra, nie investicne odporucanie.
 
 Jeden proces bota obchoduje jeden par. Viac parov naraz spustaj ako viac samostatnych procesov alebo `systemd` sluzieb s vlastnym nastavenim:
 
+- vlastny subaccount a vlastne `CCOM_API_KEY`, `CCOM_API_SECRET`,
 - vlastne `INSTRUMENT`, `BASE_ASSET`, `QUOTE_ASSET`,
 - vlastne percenta a velkost davky,
 - vlastny `LOG_DIR`, aby sa nemiesali `batches.json`, `dust-bank.json` a snapshoty.
 
-Priklad:
+Bot vie nacitat iny env subor cez `ENV_FILE`. Priklad `.env.cro-usd`:
 
 ```env
+CCOM_API_KEY=...
+CCOM_API_SECRET=...
 INSTRUMENT=CRO_USD
 BASE_ASSET=CRO
 QUOTE_ASSET=USD
 LOG_DIR=logs/cro-usd
 ```
 
+Priklad `.env.btc-usd`:
+
 ```env
+CCOM_API_KEY=...
+CCOM_API_SECRET=...
 INSTRUMENT=BTC_USD
 BASE_ASSET=BTC
 QUOTE_ASSET=USD
@@ -107,7 +114,6 @@ LOG_DIR=logs/btc-usd
 Dashboard a statistiky generuj pre kazdy par samostatne. Report cita aktivny `LOG_DIR`, takze kazdy par ma vlastny graf, tabulky, P/L, dust a davky.
 
 ```bash
-LOG_DIR=logs/cro-usd node src/report.js
-LOG_DIR=logs/btc-usd node src/report.js
-node src/report.js
+ENV_FILE=.env.cro-usd node src/report.js
+ENV_FILE=.env.btc-usd node src/report.js
 ```
