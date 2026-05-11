@@ -6,6 +6,11 @@ const config = loadConfig();
 const logDir = config.logDir;
 const reportDir = path.resolve("reports");
 const reportPath = path.join(reportDir, "dashboard.html");
+const reportSources = (process.env.REPORT_LOG_DIRS || logDir)
+  .split(",")
+  .map((item) => item.trim())
+  .filter(Boolean)
+  .map((source) => path.resolve(source));
 
 const batches = readJson(path.join(logDir, "batches.json"), []);
 const dustBank = readJson(path.join(logDir, "dust-bank.json"), { quantity: 0 });
@@ -26,7 +31,6 @@ const unrealized = openBatches.reduce((sum, batch) => {
 const totalOpenQuantity = openBatches.reduce((sum, batch) => sum + batch.quantity, 0);
 const totalOpenCost = openBatches.reduce((sum, batch) => sum + batch.quantity * batch.averagePrice, 0);
 const avgOpenPrice = totalOpenQuantity > 0 ? totalOpenCost / totalOpenQuantity : 0;
-const recentSnapshots = snapshots.slice(-240);
 const recentOrders = snapshots
   .flatMap((snapshot) => {
     return (snapshot.orderResults || []).map((result) => ({
@@ -65,6 +69,37 @@ function realizedPnl(batch) {
   return sellValue - buyCost;
 }
 
+function buildChartSeries(sources) {
+  return sources
+    .map((source) => {
+      const sourceSnapshots = readJsonl(path.join(source, "snapshots.jsonl")).slice(-240);
+      const firstPrice = sourceSnapshots.find((snapshot) => Number.isFinite(snapshot.price) && snapshot.price > 0)?.price || 0;
+      const label = sourceSnapshots.at(-1)?.instrument || path.basename(source);
+
+      return {
+        label,
+        source,
+        points: sourceSnapshots
+          .filter((snapshot) => Number.isFinite(snapshot.price) && snapshot.price > 0)
+          .map((snapshot) => ({
+            at: snapshot.at,
+            price: snapshot.price,
+            changePct: firstPrice > 0 ? (snapshot.price / firstPrice - 1) * 100 : 0,
+            orders: (snapshot.orderResults || [])
+              .filter((result) => result.action?.order && !result.skipped)
+              .map((result) => ({
+                kind: result.action?.kind,
+                side: result.action?.order?.side,
+                quantity: result.fill?.quantity ?? Number(result.action?.order?.quantity),
+                price: result.fill?.price ?? snapshot.price,
+                batchId: result.action?.batchId
+              }))
+          }))
+      };
+    })
+    .filter((item) => item.points.length > 0);
+}
+
 function fmt(value, digits = 4) {
   if (!Number.isFinite(value)) return "-";
   return value.toLocaleString("en-US", {
@@ -86,19 +121,7 @@ function escapeHtml(value) {
 }
 
 function renderHtml() {
-  const chartData = recentSnapshots.map((snapshot) => ({
-    at: snapshot.at,
-    price: snapshot.price,
-    orders: (snapshot.orderResults || [])
-      .filter((result) => result.action?.order && !result.skipped)
-      .map((result) => ({
-        kind: result.action?.kind,
-        side: result.action?.order?.side,
-        quantity: result.fill?.quantity ?? Number(result.action?.order?.quantity),
-        price: result.fill?.price ?? snapshot.price,
-        batchId: result.action?.batchId
-      }))
-  }));
+  const chartSeries = buildChartSeries(reportSources);
 
   return `<!doctype html>
 <html lang="en">
@@ -182,7 +205,7 @@ function renderHtml() {
     </div>
 
     <section>
-      <h2>Price, Buys And Sells</h2>
+      <h2>Price Change, Buys And Sells</h2>
       <canvas id="chart" width="1100" height="320"></canvas>
     </section>
 
@@ -221,7 +244,7 @@ function renderHtml() {
     </div>
   </main>
   <script>
-    const data = ${JSON.stringify(chartData)};
+    const series = ${JSON.stringify(chartSeries)};
     const canvas = document.getElementById("chart");
     const ctx = canvas.getContext("2d");
     const w = canvas.width;
@@ -229,13 +252,18 @@ function renderHtml() {
     const pad = { left: 72, right: 22, top: 30, bottom: 54 };
     const plotW = w - pad.left - pad.right;
     const plotH = h - pad.top - pad.bottom;
-    const prices = data.map(d => d.price).filter(v => Number.isFinite(v));
-    const minPrice = Math.min(...prices);
-    const maxPrice = Math.max(...prices);
-    const pricePad = Math.max((maxPrice - minPrice) * 0.08, maxPrice * 0.001);
-    const yMin = minPrice - pricePad;
-    const yMax = maxPrice + pricePad;
+    const points = series.flatMap(item => item.points || []);
+    const times = points.map(point => new Date(point.at).getTime()).filter(value => Number.isFinite(value));
+    const changes = points.map(point => point.changePct).filter(value => Number.isFinite(value));
+    const minTime = Math.min(...times);
+    const maxTime = Math.max(...times);
+    const minChange = Math.min(...changes);
+    const maxChange = Math.max(...changes);
+    const changePad = Math.max((maxChange - minChange) * 0.15, 0.5);
+    const yMin = minChange - changePad;
+    const yMax = maxChange + changePad;
     const ySpan = yMax - yMin || 1;
+    const colors = ["#1c5d99", "#7b2cbf", "#e67700", "#087f5b", "#c92a2a"];
     ctx.clearRect(0, 0, w, h);
     ctx.font = "12px system-ui";
     ctx.textBaseline = "middle";
@@ -251,14 +279,13 @@ function renderHtml() {
       ctx.stroke();
       ctx.fillStyle = "#687386";
       ctx.textAlign = "right";
-      ctx.fillText("$" + value.toFixed(5), pad.left - 10, y);
+      ctx.fillText(value.toFixed(2) + "%", pad.left - 10, y);
     }
 
-    const xTickCount = Math.min(6, data.length);
+    const xTickCount = times.length ? 6 : 0;
     for (let i = 0; i < xTickCount; i++) {
-      const index = Math.round((data.length - 1) * i / Math.max(1, xTickCount - 1));
-      const item = data[index];
-      const x = xForIndex(index);
+      const time = minTime + ((maxTime - minTime) * i) / Math.max(1, xTickCount - 1);
+      const x = xForTime(time);
       ctx.strokeStyle = "#edf0f5";
       ctx.beginPath();
       ctx.moveTo(x, pad.top);
@@ -267,7 +294,7 @@ function renderHtml() {
       ctx.fillStyle = "#687386";
       ctx.textAlign = "center";
       ctx.textBaseline = "top";
-      ctx.fillText(formatTime(item.at), x, h - pad.bottom + 12);
+      ctx.fillText(formatTime(time), x, h - pad.bottom + 12);
     }
 
     ctx.strokeStyle = "#17202a";
@@ -277,41 +304,43 @@ function renderHtml() {
     ctx.lineTo(w - pad.right, h - pad.bottom);
     ctx.stroke();
 
-    drawPriceLine();
+    drawPriceLines();
     drawOrderMarkers();
 
-    ctx.fillStyle = "#1c5d99";
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
-    ctx.fillText("Price", pad.left, 18);
-    drawLegendMarker(pad.left + 64, 18, "#087f5b", "BUY");
-    drawLegendMarker(pad.left + 128, 18, "#c92a2a", "SELL");
+    series.forEach((item, index) => drawLegendMarker(pad.left + index * 135, 18, colors[index % colors.length], item.label));
 
-    function drawPriceLine() {
-      ctx.strokeStyle = "#1c5d99";
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      data.forEach((item, index) => {
-        const x = xForIndex(index);
-        const y = yForPrice(item.price);
-        if (index === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
+    function drawPriceLines() {
+      series.forEach((item, seriesIndex) => {
+        ctx.strokeStyle = colors[seriesIndex % colors.length];
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        item.points.forEach((point, index) => {
+          const x = xForTime(new Date(point.at).getTime());
+          const y = yForChange(point.changePct);
+          if (index === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        });
+        ctx.stroke();
       });
-      ctx.stroke();
     }
 
     function drawOrderMarkers() {
-      data.forEach((item, index) => {
-        const orders = item.orders || [];
-        if (!orders.length) return;
+      series.forEach((item, seriesIndex) => {
+        item.points.forEach((point) => {
+          const orders = point.orders || [];
+          if (!orders.length) return;
 
-        const buyCount = orders.filter(order => order.side === "BUY").length;
-        const sellCount = orders.filter(order => order.side === "SELL").length;
-        const x = xForIndex(index);
-        const y = yForPrice(item.price);
+          const buyCount = orders.filter(order => order.side === "BUY").length;
+          const sellCount = orders.filter(order => order.side === "SELL").length;
+          const x = xForTime(new Date(point.at).getTime());
+          const y = yForChange(point.changePct);
 
-        if (buyCount) drawMarkerCluster({ x, y: y + 13, color: "#087f5b", direction: "up", label: markerLabel(orders, "BUY") });
-        if (sellCount) drawMarkerCluster({ x, y: y - 13, color: "#c92a2a", direction: "down", label: markerLabel(orders, "SELL") });
+          if (buyCount) drawMarkerCluster({ x, y: y + 13, color: "#087f5b", direction: "up", label: markerLabel(orders, "BUY") });
+          if (sellCount) drawMarkerCluster({ x, y: y - 13, color: "#c92a2a", direction: "down", label: markerLabel(orders, "SELL") });
+          drawSmallDot(x, y, colors[seriesIndex % colors.length]);
+        });
       });
     }
 
@@ -359,12 +388,19 @@ function renderHtml() {
       ctx.fillText(label, x + 8, y);
     }
 
-    function xForIndex(index) {
-      return pad.left + (plotW * index) / Math.max(1, data.length - 1);
+    function drawSmallDot(x, y, color) {
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(x, y, 3, 0, Math.PI * 2);
+      ctx.fill();
     }
 
-    function yForPrice(price) {
-      return pad.top + ((yMax - price) / ySpan) * plotH;
+    function xForTime(time) {
+      return pad.left + ((time - minTime) / Math.max(1, maxTime - minTime)) * plotW;
+    }
+
+    function yForChange(changePct) {
+      return pad.top + ((yMax - changePct) / ySpan) * plotH;
     }
 
     function formatTime(value) {
