@@ -103,3 +103,15 @@ BASE_ASSET=BTC
 QUOTE_ASSET=USD
 LOG_DIR=logs/btc-usd
 ```
+
+Spolocny dashboard graf vie nacitat viac parov naraz cez `REPORT_LOG_DIRS`. Kedze pary mozu mat uplne ine cenove urovne, spolocny graf kresli percentu zmenu ceny od zaciatku zobrazeneho obdobia a do tej istej osi zakresli nakupy a predaje kazdeho paru.
+
+```env
+REPORT_LOG_DIRS=logs/cro-usd,logs/btc-usd
+```
+
+Potom:
+
+```bash
+node src/report.js
+```
