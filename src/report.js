@@ -89,9 +89,15 @@ function renderHtml() {
   const chartData = recentSnapshots.map((snapshot) => ({
     at: snapshot.at,
     price: snapshot.price,
-    total: snapshot.portfolio?.totalQuoteValue,
-    base: snapshot.portfolio?.baseTotal,
-    quote: snapshot.portfolio?.quoteTotal
+    orders: (snapshot.orderResults || [])
+      .filter((result) => result.action?.order && !result.skipped)
+      .map((result) => ({
+        kind: result.action?.kind,
+        side: result.action?.order?.side,
+        quantity: result.fill?.quantity ?? Number(result.action?.order?.quantity),
+        price: result.fill?.price ?? snapshot.price,
+        batchId: result.action?.batchId
+      }))
   }));
 
   return `<!doctype html>
@@ -176,7 +182,7 @@ function renderHtml() {
     </div>
 
     <section>
-      <h2>Price And Portfolio</h2>
+      <h2>Price, Buys And Sells</h2>
       <canvas id="chart" width="1100" height="320"></canvas>
     </section>
 
@@ -220,41 +226,151 @@ function renderHtml() {
     const ctx = canvas.getContext("2d");
     const w = canvas.width;
     const h = canvas.height;
-    const pad = 42;
+    const pad = { left: 72, right: 22, top: 30, bottom: 54 };
+    const plotW = w - pad.left - pad.right;
+    const plotH = h - pad.top - pad.bottom;
+    const prices = data.map(d => d.price).filter(v => Number.isFinite(v));
+    const minPrice = Math.min(...prices);
+    const maxPrice = Math.max(...prices);
+    const pricePad = Math.max((maxPrice - minPrice) * 0.08, maxPrice * 0.001);
+    const yMin = minPrice - pricePad;
+    const yMax = maxPrice + pricePad;
+    const ySpan = yMax - yMin || 1;
     ctx.clearRect(0, 0, w, h);
     ctx.font = "12px system-ui";
-    ctx.strokeStyle = "#d9dee7";
+    ctx.textBaseline = "middle";
     ctx.lineWidth = 1;
-    for (let i = 0; i <= 4; i++) {
-      const y = pad + ((h - pad * 2) * i) / 4;
-      ctx.beginPath();
-      ctx.moveTo(pad, y);
-      ctx.lineTo(w - pad, y);
-      ctx.stroke();
-    }
-    drawSeries(data.map(d => d.price), "#1c5d99", "Price");
-    drawSeries(data.map(d => d.total), "#087f5b", "Portfolio");
-    ctx.fillStyle = "#1c5d99";
-    ctx.fillText("Price", pad, 18);
-    ctx.fillStyle = "#087f5b";
-    ctx.fillText("Portfolio value", pad + 60, 18);
 
-    function drawSeries(values, color) {
-      const clean = values.filter(v => Number.isFinite(v));
-      if (clean.length < 2) return;
-      const min = Math.min(...clean);
-      const max = Math.max(...clean);
-      const span = max - min || 1;
-      ctx.strokeStyle = color;
+    for (let i = 0; i <= 5; i++) {
+      const y = pad.top + (plotH * i) / 5;
+      const value = yMax - (ySpan * i) / 5;
+      ctx.strokeStyle = "#d9dee7";
+      ctx.beginPath();
+      ctx.moveTo(pad.left, y);
+      ctx.lineTo(w - pad.right, y);
+      ctx.stroke();
+      ctx.fillStyle = "#687386";
+      ctx.textAlign = "right";
+      ctx.fillText("$" + value.toFixed(5), pad.left - 10, y);
+    }
+
+    const xTickCount = Math.min(6, data.length);
+    for (let i = 0; i < xTickCount; i++) {
+      const index = Math.round((data.length - 1) * i / Math.max(1, xTickCount - 1));
+      const item = data[index];
+      const x = xForIndex(index);
+      ctx.strokeStyle = "#edf0f5";
+      ctx.beginPath();
+      ctx.moveTo(x, pad.top);
+      ctx.lineTo(x, h - pad.bottom);
+      ctx.stroke();
+      ctx.fillStyle = "#687386";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "top";
+      ctx.fillText(formatTime(item.at), x, h - pad.bottom + 12);
+    }
+
+    ctx.strokeStyle = "#17202a";
+    ctx.beginPath();
+    ctx.moveTo(pad.left, pad.top);
+    ctx.lineTo(pad.left, h - pad.bottom);
+    ctx.lineTo(w - pad.right, h - pad.bottom);
+    ctx.stroke();
+
+    drawPriceLine();
+    drawOrderMarkers();
+
+    ctx.fillStyle = "#1c5d99";
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    ctx.fillText("Price", pad.left, 18);
+    drawLegendMarker(pad.left + 64, 18, "#087f5b", "BUY");
+    drawLegendMarker(pad.left + 128, 18, "#c92a2a", "SELL");
+
+    function drawPriceLine() {
+      ctx.strokeStyle = "#1c5d99";
       ctx.lineWidth = 2;
       ctx.beginPath();
-      values.forEach((value, index) => {
-        const x = pad + ((w - pad * 2) * index) / Math.max(1, values.length - 1);
-        const y = h - pad - ((value - min) / span) * (h - pad * 2);
+      data.forEach((item, index) => {
+        const x = xForIndex(index);
+        const y = yForPrice(item.price);
         if (index === 0) ctx.moveTo(x, y);
         else ctx.lineTo(x, y);
       });
       ctx.stroke();
+    }
+
+    function drawOrderMarkers() {
+      data.forEach((item, index) => {
+        const orders = item.orders || [];
+        if (!orders.length) return;
+
+        const buyCount = orders.filter(order => order.side === "BUY").length;
+        const sellCount = orders.filter(order => order.side === "SELL").length;
+        const x = xForIndex(index);
+        const y = yForPrice(item.price);
+
+        if (buyCount) drawMarkerCluster({ x, y: y + 13, color: "#087f5b", direction: "up", label: markerLabel(orders, "BUY") });
+        if (sellCount) drawMarkerCluster({ x, y: y - 13, color: "#c92a2a", direction: "down", label: markerLabel(orders, "SELL") });
+      });
+    }
+
+    function drawMarkerCluster({ x, y, color, direction, label }) {
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      if (direction === "up") {
+        ctx.moveTo(x, y - 7);
+        ctx.lineTo(x - 6, y + 5);
+        ctx.lineTo(x + 6, y + 5);
+      } else {
+        ctx.moveTo(x, y + 7);
+        ctx.lineTo(x - 6, y - 5);
+        ctx.lineTo(x + 6, y - 5);
+      }
+      ctx.closePath();
+      ctx.fill();
+
+      if (!label) return;
+      ctx.font = "11px system-ui";
+      ctx.textAlign = "center";
+      ctx.textBaseline = direction === "up" ? "top" : "bottom";
+      ctx.fillText(label, x, direction === "up" ? y + 8 : y - 8);
+      ctx.font = "12px system-ui";
+    }
+
+    function markerLabel(orders, side) {
+      const selected = orders.filter(order => order.side === side);
+      if (!selected.length) return "";
+      const kinds = new Map();
+      selected.forEach(order => kinds.set(order.kind, (kinds.get(order.kind) || 0) + 1));
+      if (selected.length === 1) return selected[0].kind === "BASE_BUY" ? "B" : selected[0].kind === "AVERAGE_DOWN" ? "D" : "S";
+      return Array.from(kinds.entries()).map(([kind, count]) => {
+        const short = kind === "BASE_BUY" ? "B" : kind === "AVERAGE_DOWN" ? "D" : kind === "TAKE_PROFIT" ? "S" : kind === "DUST_SELL" ? "DS" : kind;
+        return count > 1 ? count + short : short;
+      }).join("+");
+    }
+
+    function drawLegendMarker(x, y, color, label) {
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(x, y, 4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#687386";
+      ctx.fillText(label, x + 8, y);
+    }
+
+    function xForIndex(index) {
+      return pad.left + (plotW * index) / Math.max(1, data.length - 1);
+    }
+
+    function yForPrice(price) {
+      return pad.top + ((yMax - price) / ySpan) * plotH;
+    }
+
+    function formatTime(value) {
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return "";
+      return date.toLocaleString("sk-SK", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
     }
   </script>
 </body>
