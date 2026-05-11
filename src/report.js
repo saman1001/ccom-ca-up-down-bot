@@ -14,8 +14,12 @@ const openBatches = batches.filter((batch) => batch.status === "OPEN");
 const closedBatches = batches.filter((batch) => batch.status === "CLOSED");
 const latest = snapshots.at(-1) || null;
 
-const realized = closedBatches.reduce((sum, batch) => sum + realizedPnl(batch), 0);
 const lastPrice = latest?.price ?? 0;
+const realizedCash = closedBatches.reduce((sum, batch) => sum + realizedPnl(batch), 0);
+const closedBatchDustQuantity = closedBatches.reduce((sum, batch) => sum + Number(batch.dustQuantity || 0), 0);
+const closedBatchDustValue = closedBatchDustQuantity * lastPrice;
+const dustBankValue = (dustBank.quantity || 0) * lastPrice;
+const realizedWithClosedDust = realizedCash + closedBatchDustValue;
 const unrealized = openBatches.reduce((sum, batch) => {
   return sum + batch.quantity * (lastPrice - batch.averagePrice);
 }, 0);
@@ -165,7 +169,9 @@ function renderHtml() {
       ${metric("USD Balance", latest ? money(latest.portfolio?.quoteTotal || 0) : "-")}
       ${metric("CRO Balance", latest ? fmt(latest.portfolio?.baseTotal || 0, 4) : "-")}
       ${metric("Dust Bank", fmt(dustBank.quantity || 0, 4))}
-      ${metric("Realized P/L", money(realized), realized)}
+      ${metric("Dust Value", money(dustBankValue))}
+      ${metric("Realized Cash P/L", money(realizedCash), realizedCash)}
+      ${metric("Realized Incl. Dust", money(realizedWithClosedDust), realizedWithClosedDust)}
       ${metric("Unrealized P/L", money(unrealized), unrealized)}
     </div>
 
