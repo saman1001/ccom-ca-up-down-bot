@@ -116,6 +116,7 @@
 ## Buduce strategie
 
 - [x] Podpora viacerych parov ako samostatne procesy/sluzby, napr. `BTC_USD`, `ETH_USD`, `CRO_USD`.
+- [ ] Preskumat intenzivneho maker-side bota, ktory obchoduje limit ordermi na maker strane order booku s cielom vyhnut sa taker fee.
 - [ ] Dynamicke percenta podla volatility.
 - [ ] Pauza v obchodovani pri prudkom prepade trhu.
 - [ ] Pauza v obchodovani pri prudkom raste.
