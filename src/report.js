@@ -5,7 +5,9 @@ import { loadConfig } from "./config.js";
 const config = loadConfig();
 const logDir = config.logDir;
 const reportDir = path.resolve("reports");
-const reportPath = path.join(reportDir, "dashboard.html");
+const reportName = `${slugify(config.instrument)}-dashboard.html`;
+const reportPath = path.join(reportDir, reportName);
+const dashboardTitle = `${config.instrument} Bot Dashboard`;
 
 const batches = readJson(path.join(logDir, "batches.json"), []);
 const dustBank = readJson(path.join(logDir, "dust-bank.json"), { quantity: 0 });
@@ -85,6 +87,14 @@ function escapeHtml(value) {
     .replaceAll('"', "&quot;");
 }
 
+function slugify(value) {
+  return String(value)
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
 function renderHtml() {
   const chartData = recentSnapshots.map((snapshot) => ({
     at: snapshot.at,
@@ -105,7 +115,7 @@ function renderHtml() {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>CRO Bot Dashboard</title>
+  <title>${escapeHtml(dashboardTitle)}</title>
   <style>
     :root {
       color-scheme: light;
@@ -163,17 +173,17 @@ function renderHtml() {
 </head>
 <body>
   <header>
-    <h1>CRO Bot Dashboard</h1>
+    <h1>${escapeHtml(dashboardTitle)}</h1>
     <div class="muted">Generated ${escapeHtml(new Date().toISOString())}. Latest bot tick: ${escapeHtml(latest?.at || "none")}.</div>
   </header>
   <main class="grid">
     <div class="grid metrics">
       ${metric("Portfolio", latest ? money(latest.portfolio?.totalQuoteValue || 0) : "-")}
       ${metric("Open Batches", String(openBatches.length))}
-      ${metric("Open CRO", fmt(totalOpenQuantity, 4))}
+      ${metric(`Open ${config.baseAsset}`, fmt(totalOpenQuantity, 4))}
       ${metric("Avg Open Price", avgOpenPrice ? money(avgOpenPrice) : "-")}
-      ${metric("USD Balance", latest ? money(latest.portfolio?.quoteTotal || 0) : "-")}
-      ${metric("CRO Balance", latest ? fmt(latest.portfolio?.baseTotal || 0, 4) : "-")}
+      ${metric(`${config.quoteAsset} Balance`, latest ? money(latest.portfolio?.quoteTotal || 0) : "-")}
+      ${metric(`${config.baseAsset} Balance`, latest ? fmt(latest.portfolio?.baseTotal || 0, 4) : "-")}
       ${metric("Dust Bank", fmt(dustBank.quantity || 0, 4))}
       ${metric("Dust Value", money(dustBankValue))}
       ${metric("Realized Cash P/L", money(realizedCash), realizedCash)}
