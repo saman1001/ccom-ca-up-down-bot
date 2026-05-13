@@ -76,13 +76,13 @@
 - [x] Generovat samostatny dashboard pre kazdy par podla aktivneho `ENV_FILE` a `LOG_DIR`.
 - [x] Pridat graf nakupov a predajov priamo do cenoveho grafu.
 - [x] Pridat realized cash P/L, realized P/L vratane dustu a unrealized P/L.
-- [ ] Automaticky generovat HTML dashboard po kazdom behu bota.
-- [ ] Pridat denny suhrn zisku/straty.
-- [ ] Pridat export do CSV.
-- [ ] Pridat statistiku poplatkov zo skutocnej trade history.
-- [ ] Pridat priemerny cas drzania davky.
-- [ ] Pridat prehlad najziskovejsich a najhorsich davok.
-- [ ] Pridat spolocny index reportov, ktory odkazuje na dashboardy vsetkych parov.
+- [x] Automaticky generovat HTML dashboard po kazdom behu bota.
+- [x] Pridat denny suhrn zisku/straty.
+- [x] Pridat export do CSV.
+- [x] Pridat statistiku poplatkov z fee/trade dat, ked su dostupne v ulozenych logoch.
+- [x] Pridat priemerny cas drzania davky.
+- [x] Pridat prehlad najziskovejsich a najhorsich davok.
+- [x] Pridat spolocny index reportov, ktory odkazuje na dashboardy vsetkych parov.
 
 ## Prevadzka na VPS
 
