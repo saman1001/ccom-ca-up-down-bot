@@ -63,6 +63,7 @@ function buildReportData({ config, batches, dustBank, snapshots }) {
   const dailySummaries = buildDailySummaries(closedBatches, dustBank);
   const orders = extractOrders(snapshots);
   const feeStats = buildFeeStats({ batches, orders, dustBank });
+  const annualizedStats = buildAnnualizedStats({ closedStats, dustBank });
   const recentSnapshots = snapshots.slice(-240);
   const recentOrders = orders.slice(-50).reverse();
   const rankedClosedBatches = closedStats
@@ -93,6 +94,7 @@ function buildReportData({ config, batches, dustBank, snapshots }) {
     recentOrders,
     orders,
     feeStats,
+    annualizedStats,
     dashboardTitle: `${config.instrument} Bot Dashboard`
   };
 }
@@ -138,10 +140,67 @@ function buildClosedBatchStats(closedBatches) {
       closedAt: batch.closedAt || "",
       holdingMs,
       holdingHours: holdingMs === null ? null : holdingMs / 36e5,
+      annualizedPct: annualizedPct({ profit: realized, capital: buyCost, holdingMs }),
       buys: (batch.buys || []).length,
       sells: (batch.sells || []).length
     };
   });
+}
+
+function buildAnnualizedStats({ closedStats, dustBank }) {
+  const batchCapitalYears = closedStats.reduce((sum, batch) => {
+    return sum + capitalYears(batch.buyCost, batch.holdingMs);
+  }, 0);
+  const batchProfit = closedStats.reduce((sum, batch) => sum + batch.realizedPnl, 0);
+  const dust = buildSoldDustStats(dustBank);
+  const totalCapitalYears = batchCapitalYears + dust.capitalYears;
+  const profitInclSoldDust = batchProfit + dust.soldValue;
+
+  return {
+    batchProfit,
+    batchCapitalYears,
+    batchAnnualizedPct: ratePct(batchProfit, batchCapitalYears),
+    soldDustValue: dust.soldValue,
+    soldDustCapitalYears: dust.capitalYears,
+    profitInclSoldDust,
+    totalCapitalYears,
+    annualizedInclSoldDustPct: ratePct(profitInclSoldDust, totalCapitalYears)
+  };
+}
+
+function buildSoldDustStats(dustBank) {
+  const lots = (dustBank.entries || [])
+    .map((entry) => ({
+      remaining: Number(entry.quantity || 0),
+      price: Number(entry.price || 0),
+      at: entry.at
+    }))
+    .filter((lot) => lot.remaining > 0);
+  let soldValue = 0;
+  let dustCapitalYears = 0;
+
+  for (const sell of dustBank.sells || []) {
+    let quantityToAllocate = Number(sell.quantity || 0);
+    const sellPrice = Number(sell.price || 0);
+    const soldAt = sell.at;
+    if (!Number.isFinite(quantityToAllocate) || quantityToAllocate <= 0) continue;
+    soldValue += quantityToAllocate * sellPrice;
+
+    for (const lot of lots) {
+      if (quantityToAllocate <= 0) break;
+      if (lot.remaining <= 0) continue;
+      const quantity = Math.min(lot.remaining, quantityToAllocate);
+      const capital = quantity * lot.price;
+      dustCapitalYears += capitalYearsBetween(capital, lot.at, soldAt);
+      lot.remaining -= quantity;
+      quantityToAllocate -= quantity;
+    }
+  }
+
+  return {
+    soldValue,
+    capitalYears: dustCapitalYears
+  };
 }
 
 function buildDailySummaries(closedBatches, dustBank) {
@@ -278,7 +337,8 @@ function renderDashboard(data) {
     avgOpenPrice,
     recentSnapshots,
     recentOrders,
-    feeStats
+    feeStats,
+    annualizedStats
   } = data;
   const chartData = recentSnapshots.map((snapshot) => ({
     at: snapshot.at,
@@ -360,6 +420,8 @@ function renderDashboard(data) {
       ${metric("Realized Incl. Dust", money(realizedWithClosedDust), realizedWithClosedDust)}
       ${metric("Unrealized P/L", money(unrealized), unrealized)}
       ${metric("Avg Holding", avgHoldingHours === null ? "-" : duration(avgHoldingHours * 36e5))}
+      ${metric("P/L p.a.", pct(annualizedStats.batchAnnualizedPct), annualizedStats.batchAnnualizedPct)}
+      ${metric("P/L p.a. Incl. Sold Dust", pct(annualizedStats.annualizedInclSoldDustPct), annualizedStats.annualizedInclSoldDustPct)}
       ${metric("Best Batch", bestBatch ? money(bestBatch.realizedPnl) : "-")}
       ${metric("Worst Batch", worstBatch ? money(worstBatch.realizedPnl) : "-")}
       ${metric("Fee Rows", String(feeStats.reduce((sum, row) => sum + row.count, 0)))}
@@ -371,6 +433,17 @@ function renderDashboard(data) {
     </section>
 
     <div class="grid two">
+      <section>
+        <h2>Annualized P/L</h2>
+        <div class="scroll">${table(["Metric", "Value"], [
+          ["Closed batch profit", money(annualizedStats.batchProfit)],
+          ["Closed batch capital-years", fmt(annualizedStats.batchCapitalYears, 6)],
+          ["Closed batch P/L p.a.", pct(annualizedStats.batchAnnualizedPct)],
+          ["Sold dust proceeds", money(annualizedStats.soldDustValue)],
+          ["Sold dust capital-years", fmt(annualizedStats.soldDustCapitalYears, 6)],
+          ["P/L p.a. incl. sold dust", pct(annualizedStats.annualizedInclSoldDustPct)]
+        ])}</div>
+      </section>
       <section>
         <h2>Daily Summary</h2>
         <div class="scroll">${table(["Day", "Closed", "Realized", "Dust", "Dust Sold"], dailySummaries.slice(0, 30).map((row) => [
@@ -569,7 +642,7 @@ function renderDashboard(data) {
 
 function renderBatchesCsv(data) {
   return csv([
-    ["id", "status", "quantity", "average_price", "realized_pnl", "realized_pct", "dust_quantity", "created_at", "closed_at", "holding_hours", "buys", "sells"],
+    ["id", "status", "quantity", "average_price", "realized_pnl", "realized_pct", "annualized_pct", "dust_quantity", "created_at", "closed_at", "holding_hours", "buys", "sells"],
     ...data.batches.map((batch) => {
       const closed = data.closedStats.find((item) => item.id === batch.id);
       return [
@@ -579,6 +652,7 @@ function renderBatchesCsv(data) {
         batch.averagePrice,
         closed?.realizedPnl ?? "",
         closed?.realizedPct ?? "",
+        closed?.annualizedPct ?? "",
         batch.dustQuantity ?? "",
         batch.createdAt ?? "",
         batch.closedAt ?? "",
@@ -693,7 +767,7 @@ function csv(rows) {
 
 function csvCell(value) {
   const text = value === null || value === undefined ? "" : String(value);
-  if (!/["]|,|\n|\r/.test(text)) return text;
+  if (!/[",\n\r]/.test(text)) return text;
   return `"${text.replaceAll('"', '""')}"`;
 }
 
@@ -710,6 +784,33 @@ function lastDate(values) {
 function average(values) {
   if (!values.length) return null;
   return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function annualizedPct({ profit, capital, holdingMs }) {
+  return ratePct(profit, capitalYears(capital, holdingMs));
+}
+
+function capitalYears(capital, holdingMs) {
+  if (!Number.isFinite(capital) || capital <= 0) return 0;
+  if (!Number.isFinite(holdingMs) || holdingMs <= 0) return 0;
+  return capital * (holdingMs / yearMs());
+}
+
+function capitalYearsBetween(capital, from, to) {
+  const fromDate = new Date(from);
+  const toDate = new Date(to);
+  if (!Number.isFinite(fromDate.getTime()) || !Number.isFinite(toDate.getTime())) return 0;
+  return capitalYears(capital, toDate.getTime() - fromDate.getTime());
+}
+
+function ratePct(profit, capitalYearsValue) {
+  if (!Number.isFinite(profit)) return null;
+  if (!Number.isFinite(capitalYearsValue) || capitalYearsValue <= 0) return null;
+  return (profit / capitalYearsValue) * 100;
+}
+
+function yearMs() {
+  return 365 * 24 * 60 * 60 * 1000;
 }
 
 function duration(ms) {
@@ -730,6 +831,11 @@ function fmt(value, digits = 4) {
 
 function money(value) {
   return `$${fmt(value, 4)}`;
+}
+
+function pct(value) {
+  if (!Number.isFinite(value)) return "-";
+  return `${fmt(value, 2)}%`;
 }
 
 function signedMoney(value) {
