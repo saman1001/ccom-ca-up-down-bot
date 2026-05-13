@@ -1,119 +1,264 @@
 # ccom-ca-up-down-bot
 
-Bezpecny zaklad Crypto.com Exchange bota, ktory vie:
+Experimental Crypto.com Exchange trading bot for batch-based CRO/USD and BTC/USD trading.
 
-- nacitat cenu vybraneho instrumentu,
-- nacitat zostatky cez `private/user-balance`,
-- vypocitat orientacnu hodnotu portfolia v quote mene,
-- zapisovat snapshoty do `logs/snapshots.jsonl`,
-- vytvorit signal `BUY`, `SELL` alebo `HOLD`,
-- viest samostatne davky v `logs/batches.json`,
-- v predvolenom rezime iba simulovat obchod.
+The project is intentionally simple: plain Node.js, no runtime dependencies, file-based logs, and HTML/CSV reports. It is a learning and operations project, not investment advice.
 
-Crypto.com agent skill je ulozeny v `crypto-com-exchange-skill/`. Tento projekt z neho pouziva autentifikacny postup a endpointy, ale samotny bot je samostatny Node.js skript.
+## Safety First
 
-## Prvy beh
+This is a public repository. Never commit sensitive data:
 
-1. Skopiruj `.env.example` na `.env`.
-2. Dopln `CCOM_API_KEY` a `CCOM_API_SECRET`.
-3. Na zaciatok pouzi API key bez withdrawals a idealne iba read-only.
-4. Spusti kontrolu:
+- API keys or API secrets,
+- `.env` files,
+- exact VPS IP address,
+- private SSH keys,
+- logs with account data,
+- generated reports with private balances,
+- backups.
 
-```powershell
+Use API keys without withdrawals. For testing, start with read-only or dry-run mode, then move slowly with small limits.
+
+## What The Bot Does
+
+The bot can:
+
+- load market prices from Crypto.com Exchange,
+- load balances through `private/user-balance`,
+- track one trading pair per process,
+- manage independent batches in JSON logs,
+- average down into a batch when price drops,
+- take profit by selling a whole batch when price rises,
+- keep rounded-off leftovers in a dust bank,
+- write snapshots after every run,
+- generate dashboards and CSV reports.
+
+Current common setup uses two independent pairs:
+
+- `CRO_USD`, with logs in `logs/cro-usd`,
+- `BTC_USD`, with logs in `logs/btc-usd`.
+
+Each pair should use its own env file, own log directory, and ideally its own Crypto.com subaccount/API key.
+
+## Requirements
+
+- Node.js 20 or newer
+- Crypto.com Exchange API key
+- On VPS/systemd: IPv4 DNS preference for Crypto.com IP whitelisting
+
+For systemd services, use:
+
+```ini
+Environment=NODE_OPTIONS=--dns-result-order=ipv4first
+```
+
+This helps avoid IPv6/IPv4 mismatch problems when Crypto.com API key IP whitelisting is enabled.
+
+## First Run
+
+Copy the example env file and fill your own local values:
+
+```bash
+cp .env.example .env
+```
+
+Required private values stay only in your local `.env` file:
+
+```env
+CCOM_API_KEY=...
+CCOM_API_SECRET=...
+```
+
+Check configuration and connectivity:
+
+```bash
+node src/bot.js check
+```
+
+Run once:
+
+```bash
 node src/bot.js once
 ```
 
-Pravidelny beh kazdu hodinu:
+Run continuously:
 
-```powershell
+```bash
 node src/bot.js watch
 ```
 
-Ak mas dostupne aj `npm`, mozes pouzit aj:
+With npm scripts:
 
-```powershell
+```bash
+npm run check
 npm run once
 npm run watch
 ```
 
-## Obchodovanie
+## Trading Switches
 
-Predvolene je realne obchodovanie vypnute:
+Real trading should stay disabled until you intentionally enable it:
 
 ```env
 DRY_RUN=true
 ENABLE_TRADING=false
 ```
 
-Realne objednavky sa odoslu iba ked nastavis:
+Real orders are sent only when both are changed:
 
 ```env
 DRY_RUN=false
 ENABLE_TRADING=true
 ```
 
-Odporucany postup je:
+Recommended path:
 
 1. read-only monitoring,
-2. dry-run signaly aspon par dni,
-3. male limity,
-4. az potom trading API key bez withdrawals.
+2. dry-run signals for a few days,
+3. small real limits,
+4. trading API key without withdrawals.
 
-## Strategia
+## Batch Strategy
 
-Nastavenie `STRATEGY=batches` robi davkovu strategiu:
-
-- kazdy beh kupi zakladnu davku `BATCH_QUANTITY`, predvolene `20 CRO`,
-- ak aktualna cena klesne aspon o `AVERAGE_DOWN_DROP_PCT` pod priemer otvorenej davky, dokupi do tej davky dalsich `20 CRO`,
-- jedna davka sa dokupuje najviac do `MAX_BATCH_QUANTITY`, predvolene `500 CRO`; potom uz len caka na predaj,
-- novy zakladny nakup sa nevykona, ak posledny `BASE_BUY` je mladsi nez `BASE_BUY_COOLDOWN_MINUTES`,
-- ak aktualna cena stupne aspon o `TAKE_PROFIT_RISE_PCT` nad priemer otvorenej davky, preda celu davku,
-- pred predajom bot zaokruhli mnozstvo podla pravidiel instrumentu z burzy, aby neposielal neplatne quantity,
-- zostatok po zaokruhleni predaja ide do `logs/dust-bank.json`; ked dust dosiahne `DUST_SELL_QUANTITY`, bot ho vie predat samostatne,
-- kazda davka si drzi vlastne mnozstvo, priemer a historiu nakupov/predajov.
-
-Starsia `STRATEGY=updown` strategia je jednoducha:
-
-- ak cena klesne o `BUY_DROP_PCT` percent oproti predoslemu snapshotu, signal je `BUY`,
-- ak cena stupne o `SELL_RISE_PCT` percent oproti predoslemu snapshotu, signal je `SELL`,
-- inak `HOLD`.
-
-Je to len startovacia kostra, nie investicne odporucanie.
-
-## Viac parov naraz
-
-Jeden proces bota obchoduje jeden par. Viac parov naraz spustaj ako viac samostatnych procesov alebo `systemd` sluzieb s vlastnym nastavenim:
-
-- vlastny subaccount a vlastne `CCOM_API_KEY`, `CCOM_API_SECRET`,
-- vlastne `INSTRUMENT`, `BASE_ASSET`, `QUOTE_ASSET`,
-- vlastne percenta a velkost davky,
-- vlastny `LOG_DIR`, aby sa nemiesali `batches.json`, `dust-bank.json` a snapshoty.
-
-Bot vie nacitat iny env subor cez `ENV_FILE`. Priklad `.env.cro-usd`:
+Use:
 
 ```env
-CCOM_API_KEY=...
-CCOM_API_SECRET=...
+STRATEGY=batches
+```
+
+Batch behavior:
+
+- every normal run can buy a base batch of `BATCH_QUANTITY`,
+- `BASE_BUY_COOLDOWN_MINUTES` prevents extra base buys after service restarts,
+- every batch is tracked separately,
+- if price drops by `AVERAGE_DOWN_DROP_PCT` below a batch average, the bot can buy more into that batch,
+- a batch can grow only up to `MAX_BATCH_QUANTITY`,
+- if price rises by `TAKE_PROFIT_RISE_PCT` above a batch average, the bot sells the whole batch,
+- quantity is rounded according to Crypto.com instrument rules,
+- leftovers from rounded sells go to `dust-bank.json`,
+- old open batches continue after restart because they are stored in logs.
+
+Older `STRATEGY=updown` still exists as a simple starting strategy:
+
+- `BUY` when price drops by `BUY_DROP_PCT`,
+- `SELL` when price rises by `SELL_RISE_PCT`,
+- otherwise `HOLD`.
+
+## Multiple Pairs
+
+One bot process trades one pair. For multiple pairs, run multiple processes or systemd services.
+
+Example CRO env file:
+
+```env
 INSTRUMENT=CRO_USD
 BASE_ASSET=CRO
 QUOTE_ASSET=USD
 LOG_DIR=logs/cro-usd
 ```
 
-Priklad `.env.btc-usd`:
+Example BTC env file:
 
 ```env
-CCOM_API_KEY=...
-CCOM_API_SECRET=...
 INSTRUMENT=BTC_USD
 BASE_ASSET=BTC
 QUOTE_ASSET=USD
 LOG_DIR=logs/btc-usd
 ```
 
-Dashboard a statistiky generuj pre kazdy par samostatne. Report cita aktivny `LOG_DIR`, takze kazdy par ma vlastny graf, tabulky, P/L, dust a davky.
+Run one pair with a chosen env file:
+
+```bash
+ENV_FILE=.env.cro-usd node src/bot.js once
+ENV_FILE=.env.btc-usd node src/bot.js once
+```
+
+## Reports
+
+Generate a report for the active env/log directory:
+
+```bash
+node src/report.js
+```
+
+For multiple pairs:
 
 ```bash
 ENV_FILE=.env.cro-usd node src/report.js
 ENV_FILE=.env.btc-usd node src/report.js
 ```
+
+Or generate both configured reports on the VPS:
+
+```bash
+bash scripts/generate-reports.sh
+```
+
+Generated files go to `reports/`:
+
+- `index.html` - report index with links,
+- `cro-usd-dashboard.html`,
+- `btc-usd-dashboard.html`,
+- `*-batches.csv`,
+- `*-orders.csv`,
+- `*-daily.csv`.
+
+Reports include open batches, closed batches, recent orders, price chart, dust bank, daily summary, fee rows when available, and weighted annualized P/L.
+
+Generated reports can contain private balances and trading history. Do not commit them to the public repository.
+
+## VPS Operations
+
+Useful operational commands:
+
+```bash
+node src/health.js .env.cro-usd .env.btc-usd
+node src/backup-logs.js
+node src/rotate-logs.js
+```
+
+Available npm scripts:
+
+```bash
+npm run health
+npm run backup:logs
+npm run rotate:logs
+npm run report
+```
+
+Typical systemd commands on the VPS:
+
+```bash
+systemctl status ccom-updown --no-pager
+systemctl restart ccom-updown
+journalctl -u ccom-updown -f
+```
+
+If you run a second pair, use a second service with its own env file and log directory.
+
+## Project Layout
+
+```text
+src/bot.js              Main bot command: check, once, watch
+src/report.js           HTML and CSV report generator
+src/health.js           Basic health check for env/log freshness
+src/backup-logs.js      Local log backup helper
+src/rotate-logs.js      Snapshot log rotation helper
+scripts/generate-reports.sh
+reports/                Generated local reports, do not commit private output
+logs/                   Runtime logs, do not commit
+```
+
+## Roadmap Ideas
+
+Planned or possible improvements:
+
+- more reliable fill tracking through order detail/trades,
+- idempotency with `client_oid` and pending orders,
+- daily spend caps or max open batch limits,
+- better web UI for settings and stats,
+- maker-side experimental bot with intensive no-fee/maker trading,
+- strategy analysis and write-up.
+
+## Disclaimer
+
+This is experimental software for personal learning and automation. It can lose money, fail mid-run, or behave differently from expectations during exchange/API issues. Review the code, use small limits, and monitor it carefully.
