@@ -88,12 +88,12 @@
 
 - [x] Podpora spustenia viacerych botov cez samostatne env subory.
 - [x] Podpora samostatnych log adresarov pre jednotlive pary.
-- [ ] Pridat presny navod na `systemd` sluzby pre viac parov bez zverejnenia IP adries alebo secretov.
-- [ ] Pridat navod na aktualizaciu cez `git pull`.
-- [ ] Pridat navod na zalohu `logs/`.
-- [ ] Pridat rotaciu logov, aby subory nerastli donekonecna.
-- [ ] Pridat jednoduchy health-check prikaz.
-- [ ] Pridat prikaz na rychle pregenerovanie a stiahnutie reportov.
+- [x] Pridat presny navod na `systemd` sluzby pre viac parov bez zverejnenia IP adries alebo secretov.
+- [x] Pridat navod na aktualizaciu cez `git pull`.
+- [x] Pridat navod na zalohu `logs/`.
+- [x] Pridat rotaciu logov, aby subory nerastli donekonecna.
+- [x] Pridat jednoduchy health-check prikaz.
+- [x] Pridat prikaz na rychle pregenerovanie a stiahnutie reportov.
 
 ## Upozornenia
 
