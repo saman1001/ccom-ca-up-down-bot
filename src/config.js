@@ -57,6 +57,7 @@ export function loadConfig() {
     tradeNotional: numberEnv("TRADE_NOTIONAL", 25),
     batchQuantity: numberEnv("BATCH_QUANTITY", 20),
     maxBatchQuantity: numberEnv("MAX_BATCH_QUANTITY", 500),
+    maxOpenBatches: numberEnv("MAX_OPEN_BATCHES", 0),
     averageDownDropPct: numberEnv("AVERAGE_DOWN_DROP_PCT", 10),
     takeProfitRisePct: numberEnv("TAKE_PROFIT_RISE_PCT", 5),
     buyBaseBatchEveryRun: boolEnv("BUY_BASE_BATCH_EVERY_RUN", true),
