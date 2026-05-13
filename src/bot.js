@@ -5,6 +5,7 @@ import { buildOrder, decide } from "./strategy.js";
 import { appendSnapshot, ensureLogDir, readPreviousSnapshot } from "./storage.js";
 import { addDust, loadDustBank, saveDustBank, subtractDust } from "./dustBank.js";
 import { loadInstrumentRules } from "./instrumentRules.js";
+import { generateReport } from "./report.js";
 import {
   applyDryRunBatchPlan,
   applyFilledBatchAction,
@@ -44,6 +45,7 @@ async function runOnce() {
   if (config.strategy === "batches") {
     const result = await runBatchStrategy({ client, config, snapshot });
     appendSnapshot(config.logDir, result);
+    generateReportSafely(config);
     console.log(JSON.stringify(result, null, 2));
     return;
   }
@@ -64,6 +66,7 @@ async function runOnce() {
   }
 
   appendSnapshot(config.logDir, result);
+  generateReportSafely(config);
   console.log(JSON.stringify(result, null, 2));
 }
 
@@ -204,6 +207,14 @@ function inferFillFromPortfolioDelta({ action, before, after, fallbackPrice }) {
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function generateReportSafely(config) {
+  try {
+    generateReport({ config, quiet: true });
+  } catch (error) {
+    console.error(`[${new Date().toISOString()}] report generation failed: ${error.stack || error.message}`);
+  }
 }
 
 async function watch() {
