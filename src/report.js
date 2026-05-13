@@ -1,51 +1,101 @@
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { loadConfig } from "./config.js";
 
-const config = loadConfig();
-const logDir = config.logDir;
-const reportDir = path.resolve("reports");
-const reportName = `${slugify(config.instrument)}-dashboard.html`;
-const reportPath = path.join(reportDir, reportName);
-const dashboardTitle = `${config.instrument} Bot Dashboard`;
+const __filename = fileURLToPath(import.meta.url);
 
-const batches = readJson(path.join(logDir, "batches.json"), []);
-const dustBank = readJson(path.join(logDir, "dust-bank.json"), { quantity: 0 });
-const snapshots = readJsonl(path.join(logDir, "snapshots.jsonl"));
-const openBatches = batches.filter((batch) => batch.status === "OPEN");
-const closedBatches = batches.filter((batch) => batch.status === "CLOSED");
-const latest = snapshots.at(-1) || null;
+export function generateReport(options = {}) {
+  const config = options.config || loadConfig();
+  const logDir = config.logDir;
+  const reportDir = path.resolve("reports");
+  const reportName = `${slugify(config.instrument)}-dashboard.html`;
+  const reportPath = path.join(reportDir, reportName);
+  const batchesCsvPath = path.join(reportDir, `${slugify(config.instrument)}-batches.csv`);
+  const ordersCsvPath = path.join(reportDir, `${slugify(config.instrument)}-orders.csv`);
+  const dailyCsvPath = path.join(reportDir, `${slugify(config.instrument)}-daily.csv`);
+  const indexPath = path.join(reportDir, "index.html");
 
-const lastPrice = latest?.price ?? 0;
-const realizedCash = closedBatches.reduce((sum, batch) => sum + realizedPnl(batch), 0);
-const closedBatchDustQuantity = closedBatches.reduce((sum, batch) => sum + Number(batch.dustQuantity || 0), 0);
-const closedBatchDustValue = closedBatchDustQuantity * lastPrice;
-const dustBankValue = (dustBank.quantity || 0) * lastPrice;
-const realizedWithClosedDust = realizedCash + closedBatchDustValue;
-const unrealized = openBatches.reduce((sum, batch) => {
-  return sum + batch.quantity * (lastPrice - batch.averagePrice);
-}, 0);
-const totalOpenQuantity = openBatches.reduce((sum, batch) => sum + batch.quantity, 0);
-const totalOpenCost = openBatches.reduce((sum, batch) => sum + batch.quantity * batch.averagePrice, 0);
-const avgOpenPrice = totalOpenQuantity > 0 ? totalOpenCost / totalOpenQuantity : 0;
-const recentSnapshots = snapshots.slice(-240);
-const recentOrders = snapshots
-  .flatMap((snapshot) => {
-    return (snapshot.orderResults || []).map((result) => ({
-      at: snapshot.at,
-      kind: result.action?.kind,
-      side: result.action?.order?.side,
-      quantity: result.fill?.quantity,
-      price: result.fill?.price,
-      skipped: result.skipped || false
-    }));
-  })
-  .slice(-50)
-  .reverse();
+  const batches = readJson(path.join(logDir, "batches.json"), []);
+  const dustBank = readJson(path.join(logDir, "dust-bank.json"), { quantity: 0, entries: [], sells: [] });
+  const snapshots = readJsonl(path.join(logDir, "snapshots.jsonl"));
+  const data = buildReportData({ config, batches, dustBank, snapshots });
 
-fs.mkdirSync(reportDir, { recursive: true });
-fs.writeFileSync(reportPath, renderHtml(), "utf8");
-console.log(reportPath);
+  fs.mkdirSync(reportDir, { recursive: true });
+  fs.writeFileSync(reportPath, renderDashboard(data), "utf8");
+  fs.writeFileSync(batchesCsvPath, renderBatchesCsv(data), "utf8");
+  fs.writeFileSync(ordersCsvPath, renderOrdersCsv(data), "utf8");
+  fs.writeFileSync(dailyCsvPath, renderDailyCsv(data), "utf8");
+  writeReportIndex(reportDir, indexPath);
+
+  const result = {
+    reportPath,
+    batchesCsvPath,
+    ordersCsvPath,
+    dailyCsvPath,
+    indexPath
+  };
+
+  if (!options.quiet) {
+    console.log(JSON.stringify(result, null, 2));
+  }
+
+  return result;
+}
+
+function buildReportData({ config, batches, dustBank, snapshots }) {
+  const openBatches = batches.filter((batch) => batch.status === "OPEN");
+  const closedBatches = batches.filter((batch) => batch.status === "CLOSED");
+  const latest = snapshots.at(-1) || null;
+  const lastPrice = latest?.price ?? 0;
+  const closedBatchDustQuantity = closedBatches.reduce((sum, batch) => sum + Number(batch.dustQuantity || 0), 0);
+  const closedBatchDustValue = closedBatchDustQuantity * lastPrice;
+  const dustBankValue = (dustBank.quantity || 0) * lastPrice;
+  const realizedCash = closedBatches.reduce((sum, batch) => sum + realizedPnl(batch), 0);
+  const realizedWithClosedDust = realizedCash + closedBatchDustValue;
+  const unrealized = openBatches.reduce((sum, batch) => {
+    return sum + batch.quantity * (lastPrice - batch.averagePrice);
+  }, 0);
+  const totalOpenQuantity = openBatches.reduce((sum, batch) => sum + batch.quantity, 0);
+  const totalOpenCost = openBatches.reduce((sum, batch) => sum + batch.quantity * batch.averagePrice, 0);
+  const avgOpenPrice = totalOpenQuantity > 0 ? totalOpenCost / totalOpenQuantity : 0;
+  const closedStats = buildClosedBatchStats(closedBatches);
+  const dailySummaries = buildDailySummaries(closedBatches, dustBank);
+  const orders = extractOrders(snapshots);
+  const feeStats = buildFeeStats({ batches, orders, dustBank });
+  const recentSnapshots = snapshots.slice(-240);
+  const recentOrders = orders.slice(-50).reverse();
+  const rankedClosedBatches = closedStats
+    .slice()
+    .sort((a, b) => b.realizedPnl - a.realizedPnl);
+
+  return {
+    config,
+    batches,
+    openBatches,
+    closedBatches,
+    closedStats,
+    rankedClosedBatches,
+    dailySummaries,
+    dustBank,
+    snapshots,
+    latest,
+    lastPrice,
+    realizedCash,
+    realizedWithClosedDust,
+    closedBatchDustQuantity,
+    closedBatchDustValue,
+    dustBankValue,
+    unrealized,
+    totalOpenQuantity,
+    avgOpenPrice,
+    recentSnapshots,
+    recentOrders,
+    orders,
+    feeStats,
+    dashboardTitle: `${config.instrument} Bot Dashboard`
+  };
+}
 
 function readJson(filePath, fallback) {
   if (!fs.existsSync(filePath)) return fallback;
@@ -62,40 +112,174 @@ function readJsonl(filePath) {
 }
 
 function realizedPnl(batch) {
-  const buyCost = (batch.buys || []).reduce((sum, buy) => sum + buy.quantity * buy.price, 0);
-  const sellValue = (batch.sells || []).reduce((sum, sell) => sum + sell.quantity * sell.price, 0);
+  const buyCost = (batch.buys || []).reduce((sum, buy) => sum + Number(buy.quantity || 0) * Number(buy.price || 0), 0);
+  const sellValue = (batch.sells || []).reduce((sum, sell) => sum + Number(sell.quantity || 0) * Number(sell.price || 0), 0);
   return sellValue - buyCost;
 }
 
-function fmt(value, digits = 4) {
-  if (!Number.isFinite(value)) return "-";
-  return value.toLocaleString("en-US", {
-    maximumFractionDigits: digits,
-    minimumFractionDigits: 0
+function buildClosedBatchStats(closedBatches) {
+  return closedBatches.map((batch) => {
+    const buyCost = (batch.buys || []).reduce((sum, buy) => sum + Number(buy.quantity || 0) * Number(buy.price || 0), 0);
+    const sellValue = (batch.sells || []).reduce((sum, sell) => sum + Number(sell.quantity || 0) * Number(sell.price || 0), 0);
+    const firstBuyAt = firstDate((batch.buys || []).map((buy) => buy.at).concat(batch.createdAt));
+    const lastSellAt = lastDate((batch.sells || []).map((sell) => sell.at).concat(batch.closedAt));
+    const realized = sellValue - buyCost;
+    const holdingMs = firstBuyAt && lastSellAt ? lastSellAt.getTime() - firstBuyAt.getTime() : null;
+    return {
+      id: batch.id,
+      quantity: Number(batch.quantity || 0),
+      averagePrice: Number(batch.averagePrice || 0),
+      buyCost,
+      sellValue,
+      realizedPnl: realized,
+      realizedPct: buyCost > 0 ? (realized / buyCost) * 100 : 0,
+      dustQuantity: Number(batch.dustQuantity || 0),
+      createdAt: batch.createdAt || "",
+      closedAt: batch.closedAt || "",
+      holdingMs,
+      holdingHours: holdingMs === null ? null : holdingMs / 36e5,
+      buys: (batch.buys || []).length,
+      sells: (batch.sells || []).length
+    };
   });
 }
 
-function money(value) {
-  return `$${fmt(value, 4)}`;
+function buildDailySummaries(closedBatches, dustBank) {
+  const rows = new Map();
+  for (const batch of closedBatches) {
+    const closedAt = batch.closedAt || (batch.sells || []).at(-1)?.at;
+    if (!closedAt) continue;
+    const day = closedAt.slice(0, 10);
+    const row = ensureDailyRow(rows, day);
+    row.closedBatches += 1;
+    row.realizedCash += realizedPnl(batch);
+    row.dustQuantity += Number(batch.dustQuantity || 0);
+  }
+  for (const sell of dustBank.sells || []) {
+    if (!sell.at) continue;
+    const row = ensureDailyRow(rows, sell.at.slice(0, 10));
+    row.dustSoldQuantity += Number(sell.quantity || 0);
+    row.dustSoldValue += Number(sell.quantity || 0) * Number(sell.price || 0);
+  }
+  return Array.from(rows.values()).sort((a, b) => b.day.localeCompare(a.day));
 }
 
-function escapeHtml(value) {
-  return String(value)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;");
+function ensureDailyRow(rows, day) {
+  if (!rows.has(day)) {
+    rows.set(day, {
+      day,
+      closedBatches: 0,
+      realizedCash: 0,
+      dustQuantity: 0,
+      dustSoldQuantity: 0,
+      dustSoldValue: 0
+    });
+  }
+  return rows.get(day);
 }
 
-function slugify(value) {
-  return String(value)
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
+function extractOrders(snapshots) {
+  return snapshots
+    .flatMap((snapshot) => {
+      return (snapshot.orderResults || []).map((result) => ({
+        at: snapshot.at,
+        instrument: snapshot.instrument,
+        kind: result.action?.kind || "",
+        side: result.action?.order?.side || "",
+        batchId: result.action?.batchId || "",
+        quantity: Number(result.fill?.quantity ?? result.action?.order?.quantity ?? 0),
+        price: Number(result.fill?.price ?? snapshot.price ?? 0),
+        baseDelta: Number(result.fill?.baseDelta ?? 0),
+        quoteDelta: Number(result.fill?.quoteDelta ?? 0),
+        fee: extractFee(result),
+        skipped: result.skipped || false,
+        orderId: result.orderResult?.result?.order_id || ""
+      }));
+    });
 }
 
-function renderHtml() {
+function buildFeeStats({ batches, orders, dustBank }) {
+  const byCurrency = new Map();
+  for (const item of collectFeeItems({ batches, orders, dustBank })) {
+    if (!Number.isFinite(item.amount) || item.amount === 0) continue;
+    const currency = item.currency || "UNKNOWN";
+    const row = byCurrency.get(currency) || { currency, amount: 0, count: 0 };
+    row.amount += Math.abs(item.amount);
+    row.count += 1;
+    byCurrency.set(currency, row);
+  }
+  return Array.from(byCurrency.values()).sort((a, b) => a.currency.localeCompare(b.currency));
+}
+
+function collectFeeItems({ batches, orders, dustBank }) {
+  const items = [];
+  for (const batch of batches) {
+    for (const trade of [...(batch.buys || []), ...(batch.sells || [])]) {
+      addFeeIfPresent(items, trade);
+    }
+  }
+  for (const order of orders) {
+    addFeeIfPresent(items, order.fee);
+  }
+  for (const entry of [...(dustBank.entries || []), ...(dustBank.sells || [])]) {
+    addFeeIfPresent(items, entry);
+  }
+  return items;
+}
+
+function addFeeIfPresent(items, source) {
+  if (!source) return;
+  if (source.amount !== undefined && source.currency !== undefined) {
+    items.push({ amount: Number(source.amount), currency: source.currency });
+    return;
+  }
+  const amount = source.feeAmount ?? source.fee_amount ?? source.fee;
+  const currency = source.feeCurrency ?? source.fee_currency ?? source.currency;
+  if (amount !== undefined) {
+    items.push({ amount: Number(amount), currency });
+  }
+}
+
+function extractFee(result) {
+  const candidates = [
+    result.fill,
+    result.orderResult?.result,
+    result.orderResult?.result?.data,
+    result.orderResult?.result?.order_info
+  ];
+  for (const candidate of candidates) {
+    const amount = candidate?.feeAmount ?? candidate?.fee_amount ?? candidate?.fee;
+    if (amount !== undefined) {
+      return {
+        amount: Number(amount),
+        currency: candidate?.feeCurrency ?? candidate?.fee_currency ?? candidate?.fee_ccy ?? candidate?.currency ?? ""
+      };
+    }
+  }
+  return null;
+}
+
+function renderDashboard(data) {
+  const {
+    config,
+    dashboardTitle,
+    latest,
+    openBatches,
+    closedStats,
+    rankedClosedBatches,
+    dailySummaries,
+    dustBank,
+    lastPrice,
+    realizedCash,
+    realizedWithClosedDust,
+    dustBankValue,
+    unrealized,
+    totalOpenQuantity,
+    avgOpenPrice,
+    recentSnapshots,
+    recentOrders,
+    feeStats
+  } = data;
   const chartData = recentSnapshots.map((snapshot) => ({
     at: snapshot.at,
     price: snapshot.price,
@@ -109,6 +293,9 @@ function renderHtml() {
         batchId: result.action?.batchId
       }))
   }));
+  const avgHoldingHours = average(closedStats.map((batch) => batch.holdingHours).filter((value) => value !== null));
+  const bestBatch = rankedClosedBatches[0] || null;
+  const worstBatch = rankedClosedBatches.at(-1) || null;
 
   return `<!doctype html>
 <html lang="en">
@@ -129,12 +316,7 @@ function renderHtml() {
       --blue: #1c5d99;
     }
     * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background: var(--bg);
-      color: var(--text);
-    }
+    body { margin: 0; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
     header, main { max-width: 1180px; margin: 0 auto; padding: 24px; }
     header { padding-bottom: 8px; }
     h1 { margin: 0 0 6px; font-size: 28px; font-weight: 750; }
@@ -142,25 +324,13 @@ function renderHtml() {
     .muted { color: var(--muted); }
     .grid { display: grid; gap: 14px; }
     .metrics { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-    .metric, section {
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      padding: 16px;
-    }
+    .metric, section { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px; }
     .metric .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
     .metric .value { margin-top: 8px; font-size: 24px; font-weight: 740; }
     .pos { color: var(--green); }
     .neg { color: var(--red); }
     .two { grid-template-columns: 1.4fr .9fr; align-items: start; }
-    canvas {
-      width: 100%;
-      height: 320px;
-      display: block;
-      border: 1px solid var(--line);
-      border-radius: 6px;
-      background: #fff;
-    }
+    canvas { width: 100%; height: 320px; display: block; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
     table { width: 100%; border-collapse: collapse; font-size: 13px; }
     th, td { padding: 9px 8px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; }
     th { color: var(--muted); font-weight: 650; }
@@ -184,11 +354,15 @@ function renderHtml() {
       ${metric("Avg Open Price", avgOpenPrice ? money(avgOpenPrice) : "-")}
       ${metric(`${config.quoteAsset} Balance`, latest ? money(latest.portfolio?.quoteTotal || 0) : "-")}
       ${metric(`${config.baseAsset} Balance`, latest ? fmt(latest.portfolio?.baseTotal || 0, 4) : "-")}
-      ${metric("Dust Bank", fmt(dustBank.quantity || 0, 4))}
+      ${metric("Dust Bank", fmt(dustBank.quantity || 0, 8))}
       ${metric("Dust Value", money(dustBankValue))}
       ${metric("Realized Cash P/L", money(realizedCash), realizedCash)}
       ${metric("Realized Incl. Dust", money(realizedWithClosedDust), realizedWithClosedDust)}
       ${metric("Unrealized P/L", money(unrealized), unrealized)}
+      ${metric("Avg Holding", avgHoldingHours === null ? "-" : duration(avgHoldingHours * 36e5))}
+      ${metric("Best Batch", bestBatch ? money(bestBatch.realizedPnl) : "-")}
+      ${metric("Worst Batch", worstBatch ? money(worstBatch.realizedPnl) : "-")}
+      ${metric("Fee Rows", String(feeStats.reduce((sum, row) => sum + row.count, 0)))}
     </div>
 
     <section>
@@ -198,35 +372,62 @@ function renderHtml() {
 
     <div class="grid two">
       <section>
+        <h2>Daily Summary</h2>
+        <div class="scroll">${table(["Day", "Closed", "Realized", "Dust", "Dust Sold"], dailySummaries.slice(0, 30).map((row) => [
+          row.day,
+          row.closedBatches,
+          money(row.realizedCash),
+          fmt(row.dustQuantity, 8),
+          money(row.dustSoldValue)
+        ]))}</div>
+      </section>
+      <section>
+        <h2>Fee Summary</h2>
+        <div class="scroll">${feeStats.length ? table(["Currency", "Amount", "Rows"], feeStats.map((row) => [
+          row.currency,
+          fmt(row.amount, 8),
+          row.count
+        ])) : `<div class="muted">No fee rows found in logs yet. Exact fee reporting needs trade/order-detail data in snapshots or batches.</div>`}</div>
+      </section>
+    </div>
+
+    <div class="grid two">
+      <section>
+        <h2>Best Closed Batches</h2>
+        <div class="scroll">${closedBatchTable(rankedClosedBatches.slice(0, 10))}</div>
+      </section>
+      <section>
+        <h2>Worst Closed Batches</h2>
+        <div class="scroll">${closedBatchTable(rankedClosedBatches.slice(-10).reverse())}</div>
+      </section>
+    </div>
+
+    <div class="grid two">
+      <section>
         <h2>Open Batches</h2>
         <div class="scroll">
-          <table>
-            <thead><tr><th>ID</th><th>Qty</th><th>Avg Price</th><th>P/L</th><th>Created</th><th>Buys</th></tr></thead>
-            <tbody>
-              ${openBatches
-                .slice()
-                .reverse()
-                .map((batch) => {
-                  const pnl = batch.quantity * (lastPrice - batch.averagePrice);
-                  return `<tr><td>${escapeHtml(batch.id)}</td><td>${fmt(batch.quantity, 4)}</td><td>${money(batch.averagePrice)}</td><td class="${pnl >= 0 ? "pos" : "neg"}">${money(pnl)}</td><td>${escapeHtml(batch.createdAt)}</td><td>${(batch.buys || []).length}</td></tr>`;
-                })
-                .join("")}
-            </tbody>
-          </table>
+          ${table(["ID", "Qty", "Avg Price", "P/L", "Created", "Buys"], openBatches.slice().reverse().map((batch) => {
+            const pnl = batch.quantity * (lastPrice - batch.averagePrice);
+            return [
+              batch.id,
+              fmt(batch.quantity, 8),
+              money(batch.averagePrice),
+              signedMoney(pnl),
+              batch.createdAt,
+              (batch.buys || []).length
+            ];
+          }))}
         </div>
       </section>
       <section>
         <h2>Recent Orders</h2>
-        <div class="scroll">
-          <table>
-            <thead><tr><th>Time</th><th>Kind</th><th>Side</th><th>Qty</th><th>Price</th></tr></thead>
-            <tbody>
-              ${recentOrders
-                .map((order) => `<tr><td>${escapeHtml(order.at)}</td><td>${escapeHtml(order.kind || "-")}</td><td>${escapeHtml(order.side || "-")}</td><td>${fmt(order.quantity || 0, 4)}</td><td>${order.price ? money(order.price) : "-"}</td></tr>`)
-                .join("")}
-            </tbody>
-          </table>
-        </div>
+        <div class="scroll">${table(["Time", "Kind", "Side", "Qty", "Price"], recentOrders.map((order) => [
+          order.at,
+          order.kind || "-",
+          order.side || "-",
+          fmt(order.quantity || 0, 8),
+          order.price ? money(order.price) : "-"
+        ]))}</div>
       </section>
     </div>
   </main>
@@ -254,32 +455,21 @@ function renderHtml() {
     ctx.textBaseline = "middle";
     ctx.lineWidth = 1;
 
-    for (let i = 0; i <= 5; i++) {
-      const y = pad.top + (plotH * i) / 5;
-      const value = yMax - (ySpan * i) / 5;
-      ctx.strokeStyle = "#d9dee7";
-      ctx.beginPath();
-      ctx.moveTo(pad.left, y);
-      ctx.lineTo(w - pad.right, y);
-      ctx.stroke();
-      ctx.fillStyle = "#687386";
-      ctx.textAlign = "right";
-      ctx.fillText("$" + value.toFixed(5), pad.left - 10, y);
-    }
-
-    const xTickCount = times.length ? 6 : 0;
-    for (let i = 0; i < xTickCount; i++) {
-      const time = minTime + ((maxTime - minTime) * i) / Math.max(1, xTickCount - 1);
-      const x = xForTime(time);
-      ctx.strokeStyle = "#edf0f5";
-      ctx.beginPath();
-      ctx.moveTo(x, pad.top);
-      ctx.lineTo(x, h - pad.bottom);
-      ctx.stroke();
-      ctx.fillStyle = "#687386";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "top";
-      ctx.fillText(formatTime(time), x, h - pad.bottom + 12);
+    if (data.length) {
+      for (let i = 0; i <= 5; i++) {
+        const y = pad.top + (plotH * i) / 5;
+        const value = yMax - (ySpan * i) / 5;
+        ctx.strokeStyle = "#d9dee7";
+        ctx.beginPath();
+        ctx.moveTo(pad.left, y);
+        ctx.lineTo(w - pad.right, y);
+        ctx.stroke();
+        ctx.fillStyle = "#687386";
+        ctx.textAlign = "right";
+        ctx.fillText("$" + value.toFixed(5), pad.left - 10, y);
+      }
+      drawPriceLine();
+      drawOrderMarkers();
     }
 
     ctx.strokeStyle = "#17202a";
@@ -289,13 +479,10 @@ function renderHtml() {
     ctx.lineTo(w - pad.right, h - pad.bottom);
     ctx.stroke();
 
-    drawPriceLine();
-    drawOrderMarkers();
-
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
     ctx.fillStyle = "#1c5d99";
-    ctx.fillText(latest?.instrument || "Price", pad.left, 18);
+    ctx.fillText("${escapeJs(config.instrument)}", pad.left, 18);
     drawLegendMarker(pad.left + 104, 18, "#087f5b", "BUY");
     drawLegendMarker(pad.left + 168, 18, "#c92a2a", "SELL");
 
@@ -316,12 +503,10 @@ function renderHtml() {
       data.forEach((point) => {
         const orders = point.orders || [];
         if (!orders.length) return;
-
         const buyCount = orders.filter(order => order.side === "BUY").length;
         const sellCount = orders.filter(order => order.side === "SELL").length;
         const x = xForTime(new Date(point.at).getTime());
         const y = yForPrice(point.price);
-
         if (buyCount) drawMarkerCluster({ x, y: y + 13, color: "#087f5b", direction: "up", label: markerLabel(orders, "BUY") });
         if (sellCount) drawMarkerCluster({ x, y: y - 13, color: "#c92a2a", direction: "down", label: markerLabel(orders, "SELL") });
       });
@@ -341,7 +526,6 @@ function renderHtml() {
       }
       ctx.closePath();
       ctx.fill();
-
       if (!label) return;
       ctx.font = "11px system-ui";
       ctx.textAlign = "center";
@@ -378,18 +562,200 @@ function renderHtml() {
     function yForPrice(price) {
       return pad.top + ((yMax - price) / ySpan) * plotH;
     }
-
-    function formatTime(value) {
-      const date = new Date(value);
-      if (Number.isNaN(date.getTime())) return "";
-      return date.toLocaleString("sk-SK", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
-    }
   </script>
 </body>
 </html>`;
 }
 
+function renderBatchesCsv(data) {
+  return csv([
+    ["id", "status", "quantity", "average_price", "realized_pnl", "realized_pct", "dust_quantity", "created_at", "closed_at", "holding_hours", "buys", "sells"],
+    ...data.batches.map((batch) => {
+      const closed = data.closedStats.find((item) => item.id === batch.id);
+      return [
+        batch.id,
+        batch.status,
+        batch.quantity,
+        batch.averagePrice,
+        closed?.realizedPnl ?? "",
+        closed?.realizedPct ?? "",
+        batch.dustQuantity ?? "",
+        batch.createdAt ?? "",
+        batch.closedAt ?? "",
+        closed?.holdingHours ?? "",
+        (batch.buys || []).length,
+        (batch.sells || []).length
+      ];
+    })
+  ]);
+}
+
+function renderOrdersCsv(data) {
+  return csv([
+    ["at", "instrument", "kind", "side", "batch_id", "quantity", "price", "base_delta", "quote_delta", "fee_amount", "fee_currency", "skipped", "order_id"],
+    ...data.orders.map((order) => [
+      order.at,
+      order.instrument,
+      order.kind,
+      order.side,
+      order.batchId,
+      order.quantity,
+      order.price,
+      order.baseDelta,
+      order.quoteDelta,
+      order.fee?.amount ?? "",
+      order.fee?.currency ?? "",
+      order.skipped,
+      order.orderId
+    ])
+  ]);
+}
+
+function renderDailyCsv(data) {
+  return csv([
+    ["day", "closed_batches", "realized_cash", "dust_quantity", "dust_sold_quantity", "dust_sold_value"],
+    ...data.dailySummaries.map((row) => [
+      row.day,
+      row.closedBatches,
+      row.realizedCash,
+      row.dustQuantity,
+      row.dustSoldQuantity,
+      row.dustSoldValue
+    ])
+  ]);
+}
+
+function writeReportIndex(reportDir, indexPath) {
+  const dashboards = fs
+    .readdirSync(reportDir)
+    .filter((name) => name.endsWith("-dashboard.html"))
+    .sort();
+  const generatedAt = new Date().toISOString();
+  const rows = dashboards.map((name) => {
+    const stats = fs.statSync(path.join(reportDir, name));
+    return `<tr><td><a href="./${escapeHtml(name)}">${escapeHtml(name)}</a></td><td>${escapeHtml(stats.mtime.toISOString())}</td></tr>`;
+  });
+  fs.writeFileSync(
+    indexPath,
+    `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Bot Reports</title>
+  <style>
+    body { margin: 0; font-family: system-ui, sans-serif; background: #f6f7f9; color: #17202a; }
+    main { max-width: 900px; margin: 0 auto; padding: 24px; }
+    table { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid #d9dee7; }
+    th, td { padding: 10px 12px; border-bottom: 1px solid #d9dee7; text-align: left; }
+    th { color: #687386; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Bot Reports</h1>
+    <p>Generated ${escapeHtml(generatedAt)}</p>
+    <table><thead><tr><th>Dashboard</th><th>Updated</th></tr></thead><tbody>${rows.join("")}</tbody></table>
+  </main>
+</body>
+</html>`,
+    "utf8"
+  );
+}
+
+function closedBatchTable(rows) {
+  return table(["ID", "P/L", "P/L %", "Holding", "Closed"], rows.map((batch) => [
+    batch.id,
+    signedMoney(batch.realizedPnl),
+    `${fmt(batch.realizedPct, 2)}%`,
+    batch.holdingMs === null ? "-" : duration(batch.holdingMs),
+    batch.closedAt || "-"
+  ]));
+}
+
+function table(headers, rows) {
+  const body = rows.length
+    ? rows
+        .map((row) => `<tr>${row.map((cell) => `<td>${escapeHtml(cell)}</td>`).join("")}</tr>`)
+        .join("")
+    : `<tr><td colspan="${headers.length}" class="muted">No data yet.</td></tr>`;
+  return `<table><thead><tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join("")}</tr></thead><tbody>${body}</tbody></table>`;
+}
+
 function metric(label, value, signedValue = null) {
   const className = signedValue === null ? "" : signedValue >= 0 ? " pos" : " neg";
   return `<div class="metric"><div class="label">${escapeHtml(label)}</div><div class="value${className}">${escapeHtml(value)}</div></div>`;
+}
+
+function csv(rows) {
+  return `${rows.map((row) => row.map(csvCell).join(",")).join("\n")}\n`;
+}
+
+function csvCell(value) {
+  const text = value === null || value === undefined ? "" : String(value);
+  if (!/["]|,|\n|\r/.test(text)) return text;
+  return `"${text.replaceAll('"', '""')}"`;
+}
+
+function firstDate(values) {
+  const dates = values.map((value) => new Date(value)).filter((date) => Number.isFinite(date.getTime()));
+  return dates.length ? new Date(Math.min(...dates.map((date) => date.getTime()))) : null;
+}
+
+function lastDate(values) {
+  const dates = values.map((value) => new Date(value)).filter((date) => Number.isFinite(date.getTime()));
+  return dates.length ? new Date(Math.max(...dates.map((date) => date.getTime()))) : null;
+}
+
+function average(values) {
+  if (!values.length) return null;
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function duration(ms) {
+  if (!Number.isFinite(ms)) return "-";
+  const hours = ms / 36e5;
+  if (hours < 24) return `${fmt(hours, 1)}h`;
+  return `${fmt(hours / 24, 1)}d`;
+}
+
+function fmt(value, digits = 4) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "-";
+  return number.toLocaleString("en-US", {
+    maximumFractionDigits: digits,
+    minimumFractionDigits: 0
+  });
+}
+
+function money(value) {
+  return `$${fmt(value, 4)}`;
+}
+
+function signedMoney(value) {
+  return money(value);
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
+function escapeJs(value) {
+  return String(value).replaceAll("\\", "\\\\").replaceAll('"', '\\"');
+}
+
+function slugify(value) {
+  return String(value)
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === __filename) {
+  generateReport();
 }
