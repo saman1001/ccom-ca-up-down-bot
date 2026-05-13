@@ -702,12 +702,19 @@ function renderDailyCsv(data) {
 function writeReportIndex(reportDir, indexPath) {
   const dashboards = fs
     .readdirSync(reportDir)
-    .filter((name) => name.endsWith("-dashboard.html"))
+    .filter((name) => /^[a-z0-9]+-[a-z0-9]+-dashboard\.html$/.test(name))
     .sort();
   const generatedAt = new Date().toISOString();
   const rows = dashboards.map((name) => {
     const stats = fs.statSync(path.join(reportDir, name));
-    return `<tr><td><a href="./${escapeHtml(name)}">${escapeHtml(name)}</a></td><td>${escapeHtml(stats.mtime.toISOString())}</td></tr>`;
+    const prefix = name.replace(/-dashboard\.html$/, "");
+    const links = [
+      link(name, "Dashboard"),
+      linkIfExists(reportDir, `${prefix}-batches.csv`, "Batches CSV"),
+      linkIfExists(reportDir, `${prefix}-orders.csv`, "Orders CSV"),
+      linkIfExists(reportDir, `${prefix}-daily.csv`, "Daily CSV")
+    ].filter(Boolean).join(" ");
+    return `<tr><td>${escapeHtml(prefix.toUpperCase().replace("-", "/"))}</td><td>${links}</td><td>${escapeHtml(stats.mtime.toISOString())}</td></tr>`;
   });
   fs.writeFileSync(
     indexPath,
@@ -723,18 +730,27 @@ function writeReportIndex(reportDir, indexPath) {
     table { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid #d9dee7; }
     th, td { padding: 10px 12px; border-bottom: 1px solid #d9dee7; text-align: left; }
     th { color: #687386; }
+    a { margin-right: 12px; }
   </style>
 </head>
 <body>
   <main>
     <h1>Bot Reports</h1>
     <p>Generated ${escapeHtml(generatedAt)}</p>
-    <table><thead><tr><th>Dashboard</th><th>Updated</th></tr></thead><tbody>${rows.join("")}</tbody></table>
+    <table><thead><tr><th>Pair</th><th>Files</th><th>Updated</th></tr></thead><tbody>${rows.join("")}</tbody></table>
   </main>
 </body>
 </html>`,
     "utf8"
   );
+}
+
+function link(fileName, label) {
+  return `<a href="./${escapeHtml(fileName)}">${escapeHtml(label)}</a>`;
+}
+
+function linkIfExists(reportDir, fileName, label) {
+  return fs.existsSync(path.join(reportDir, fileName)) ? link(fileName, label) : "";
 }
 
 function closedBatchTable(rows) {
