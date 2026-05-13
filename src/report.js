@@ -510,11 +510,12 @@ function renderDashboard(data) {
     const ctx = canvas.getContext("2d");
     const w = canvas.width;
     const h = canvas.height;
-    const pad = { left: 72, right: 22, top: 30, bottom: 54 };
-    const plotW = w - pad.left - pad.right;
-    const plotH = h - pad.top - pad.bottom;
     const times = data.map(point => new Date(point.at).getTime()).filter(value => Number.isFinite(value));
     const prices = data.map(point => point.price).filter(value => Number.isFinite(value));
+    const priceDigits = prices.length ? Math.max(...prices.map(price => ("$" + price.toFixed(5)).length)) : 8;
+    const pad = { left: Math.max(76, priceDigits * 8 + 18), right: 22, top: 30, bottom: 64 };
+    const plotW = w - pad.left - pad.right;
+    const plotH = h - pad.top - pad.bottom;
     const minTime = Math.min(...times);
     const maxTime = Math.max(...times);
     const minPrice = Math.min(...prices);
@@ -541,6 +542,7 @@ function renderDashboard(data) {
         ctx.textAlign = "right";
         ctx.fillText("$" + value.toFixed(5), pad.left - 10, y);
       }
+      drawTimeAxis();
       drawPriceLine();
       drawOrderMarkers();
     }
@@ -570,6 +572,34 @@ function renderDashboard(data) {
         else ctx.lineTo(x, y);
       });
       ctx.stroke();
+    }
+
+    function drawTimeAxis() {
+      const ticks = Math.min(5, Math.max(2, data.length));
+      ctx.fillStyle = "#687386";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "top";
+      ctx.font = "11px system-ui";
+      for (let i = 0; i < ticks; i++) {
+        const ratio = ticks === 1 ? 0 : i / (ticks - 1);
+        const time = minTime + (maxTime - minTime) * ratio;
+        const x = xForTime(time);
+        const date = new Date(time);
+        const label = date.toLocaleString("en-GB", {
+          day: "2-digit",
+          month: "2-digit",
+          hour: "2-digit",
+          minute: "2-digit"
+        });
+        ctx.strokeStyle = "#d9dee7";
+        ctx.beginPath();
+        ctx.moveTo(x, h - pad.bottom);
+        ctx.lineTo(x, h - pad.bottom + 5);
+        ctx.stroke();
+        ctx.textAlign = i === 0 ? "left" : i === ticks - 1 ? "right" : "center";
+        ctx.fillText(label, x, h - pad.bottom + 9);
+      }
+      ctx.font = "12px system-ui";
     }
 
     function drawOrderMarkers() {
