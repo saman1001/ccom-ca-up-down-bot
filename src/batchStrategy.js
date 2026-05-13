@@ -24,6 +24,7 @@ export function buildBatchPlan({ batches, dustBank, instrumentRules, price, conf
   const batchQuantity = config.batchQuantity;
   const averageDownMultiplier = 1 - Math.abs(config.averageDownDropPct) / 100;
   const takeProfitMultiplier = 1 + Math.abs(config.takeProfitRisePct) / 100;
+  const openBatchCount = batches.filter((item) => item.status === "OPEN").length;
   const actions = [];
 
   for (const batch of batches.filter((item) => item.status === "OPEN")) {
@@ -111,8 +112,16 @@ export function buildBatchPlan({ batches, dustBank, instrumentRules, price, conf
     const cooldownMs = Math.max(0, config.baseBuyCooldownMinutes) * 60 * 1000;
     const lastBaseBuyAt = lastBaseBuy ? new Date(lastBaseBuy.at).getTime() : 0;
     const nowMs = new Date(now).getTime();
+    const maxOpenBatches = Math.max(0, Number(config.maxOpenBatches || 0));
 
-    if (lastBaseBuy && Number.isFinite(lastBaseBuyAt) && nowMs - lastBaseBuyAt < cooldownMs) {
+    if (maxOpenBatches > 0 && openBatchCount >= maxOpenBatches) {
+      actions.push({
+        kind: "SKIP_BASE_BUY_MAX_OPEN_BATCHES",
+        batchId: null,
+        order: null,
+        reason: `Open batch count ${openBatchCount} reached limit of ${maxOpenBatches}.`
+      });
+    } else if (lastBaseBuy && Number.isFinite(lastBaseBuyAt) && nowMs - lastBaseBuyAt < cooldownMs) {
       actions.push({
         kind: "SKIP_BASE_BUY_COOLDOWN",
         batchId: null,
