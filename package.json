@@ -8,7 +8,10 @@
     "once": "node src/bot.js once",
     "watch": "node src/bot.js watch",
     "check": "node src/bot.js check",
-    "report": "node src/report.js"
+    "report": "node src/report.js",
+    "health": "node src/health.js",
+    "backup:logs": "node src/backup-logs.js",
+    "rotate:logs": "node src/rotate-logs.js"
   },
   "engines": {
     "node": ">=20"
