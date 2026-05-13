@@ -129,6 +129,7 @@ Batch behavior:
 
 - every normal run can buy a base batch of `BATCH_QUANTITY`,
 - `BASE_BUY_COOLDOWN_MINUTES` prevents extra base buys after service restarts,
+- `MAX_OPEN_BATCHES` can stop new base buys when too many batches are already open; `0` means unlimited,
 - every batch is tracked separately,
 - if price drops by `AVERAGE_DOWN_DROP_PCT` below a batch average, the bot can buy more into that batch,
 - a batch can grow only up to `MAX_BATCH_QUANTITY`,
@@ -136,6 +137,15 @@ Batch behavior:
 - quantity is rounded according to Crypto.com instrument rules,
 - leftovers from rounded sells go to `dust-bank.json`,
 - old open batches continue after restart because they are stored in logs.
+
+Example safety limit:
+
+```env
+# 0 means unlimited. 30 means no new base batch when 30 batches are open.
+MAX_OPEN_BATCHES=30
+```
+
+The max-open-batches limit only blocks new `BASE_BUY` actions. It does not block average-down buys into batches that already exist.
 
 Older `STRATEGY=updown` still exists as a simple starting strategy:
 
@@ -254,7 +264,7 @@ Planned or possible improvements:
 
 - more reliable fill tracking through order detail/trades,
 - idempotency with `client_oid` and pending orders,
-- daily spend caps or max open batch limits,
+- daily spend caps or stricter portfolio-level exposure limits,
 - better web UI for settings and stats,
 - maker-side experimental bot with intensive no-fee/maker trading,
 - strategy analysis and write-up.
