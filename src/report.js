@@ -59,6 +59,7 @@ function buildReportData({ config, batches, dustBank, snapshots }) {
   const totalOpenQuantity = openBatches.reduce((sum, batch) => sum + batch.quantity, 0);
   const totalOpenCost = openBatches.reduce((sum, batch) => sum + batch.quantity * batch.averagePrice, 0);
   const avgOpenPrice = totalOpenQuantity > 0 ? totalOpenCost / totalOpenQuantity : 0;
+  const nextSellPrice = nextOpenBatchSellPrice(openBatches, config.takeProfitRisePct);
   const closedStats = buildClosedBatchStats(closedBatches);
   const dailySummaries = buildDailySummaries(closedBatches, dustBank);
   const orders = extractOrders(snapshots);
@@ -90,6 +91,7 @@ function buildReportData({ config, batches, dustBank, snapshots }) {
     unrealized,
     totalOpenQuantity,
     avgOpenPrice,
+    nextSellPrice,
     recentSnapshots,
     recentOrders,
     orders,
@@ -145,6 +147,14 @@ function buildClosedBatchStats(closedBatches) {
       sells: (batch.sells || []).length
     };
   });
+}
+
+function nextOpenBatchSellPrice(openBatches, takeProfitRisePct) {
+  const multiplier = 1 + Math.abs(Number(takeProfitRisePct || 0)) / 100;
+  const prices = openBatches
+    .map((batch) => Number(batch.averagePrice || 0) * multiplier)
+    .filter((price) => Number.isFinite(price) && price > 0);
+  return prices.length ? Math.min(...prices) : null;
 }
 
 function buildAnnualizedStats({ closedStats, dustBank }) {
@@ -335,6 +345,7 @@ function renderDashboard(data) {
     unrealized,
     totalOpenQuantity,
     avgOpenPrice,
+    nextSellPrice,
     recentSnapshots,
     recentOrders,
     feeStats,
@@ -409,6 +420,8 @@ function renderDashboard(data) {
   <main class="grid">
     <div class="grid metrics">
       ${metric("Portfolio", latest ? money(latest.portfolio?.totalQuoteValue || 0) : "-")}
+      ${metric("Last Price", lastPrice ? money(lastPrice) : "-")}
+      ${metric("Next Sell Price", nextSellPrice ? money(nextSellPrice) : "-")}
       ${metric("Open Batches", String(openBatches.length))}
       ${metric(`Open ${config.baseAsset}`, fmt(totalOpenQuantity, 4))}
       ${metric("Avg Open Price", avgOpenPrice ? money(avgOpenPrice) : "-")}
