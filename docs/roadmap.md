@@ -107,7 +107,7 @@
 - [ ] Pridat backtest na historickych datach.
 - [ ] Pridat testy pre vypocet priemernej ceny davky.
 - [ ] Pridat testy pre pravidla dokupu a predaja.
-- [ ] Prid testy pre zaokruhlovanie quantity a dust bank.
+- [ ] Pridat testy pre zaokruhlovanie quantity a dust bank.
 - [ ] Pridat simulator scenarov: prudky pad, pomaly rast, sideways trh.
 - [ ] Pridat porovnavanie strategii a hladanie vhodnych percent pre clanok.
 
