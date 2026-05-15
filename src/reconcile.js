@@ -194,6 +194,60 @@ function fillFromOrderDetail({ action, orderId, orderDetail, config }) {
 
 function applyFillToBatchTrade({ batches, order, fill }) {
   const trade = findTrade({ batches, order });
+  if (!trade && order.action.kind === "BASE_BUY" && order.action.order.side === "BUY") {
+    batches.push({
+      id: `batch_reconcile_${order.orderId}`,
+      status: "OPEN",
+      createdAt: order.at,
+      updatedAt: order.at,
+      quantity: cleanNumber(fill.quantity),
+      averagePrice: cleanNumber(fill.price),
+      buys: [
+        {
+          at: order.at,
+          quantity: cleanNumber(fill.quantity),
+          price: cleanNumber(fill.price),
+          reason: order.action.kind,
+          ...tradeFillFields(fill)
+        }
+      ],
+      sells: []
+    });
+    return "updated";
+  }
+
+  if (!trade && order.action.kind === "AVERAGE_DOWN" && order.action.batchId) {
+    const batch = batches.find((item) => item.id === order.action.batchId);
+    if (!batch) return "missing";
+    batch.buys = batch.buys || [];
+    batch.buys.push({
+      at: order.at,
+      quantity: cleanNumber(fill.quantity),
+      price: cleanNumber(fill.price),
+      reason: order.action.kind,
+      ...tradeFillFields(fill)
+    });
+    return "updated";
+  }
+
+  if (!trade && order.action.kind === "TAKE_PROFIT" && order.action.batchId) {
+    const batch = batches.find((item) => item.id === order.action.batchId);
+    if (!batch) return "missing";
+    batch.sells = batch.sells || [];
+    batch.sells.push({
+      at: order.at,
+      quantity: cleanNumber(fill.quantity),
+      price: cleanNumber(fill.price),
+      reason: order.action.kind,
+      ...tradeFillFields(fill)
+    });
+    if (isFullActionFill({ action: order.action, fill })) {
+      batch.status = "CLOSED";
+      batch.closedAt = order.at;
+    }
+    return "updated";
+  }
+
   if (!trade) return "missing";
 
   const next = {
@@ -222,6 +276,31 @@ function applyFillToBatchTrade({ batches, order, fill }) {
   }
 
   return "same";
+}
+
+function tradeFillFields(fill) {
+  const result = {
+    orderId: fill.orderId || "",
+    orderStatus: fill.status || "",
+    fillSource: fill.source || "",
+    grossQuantity: cleanNumber(fill.grossQuantity),
+    netQuantity: cleanNumber(fill.netQuantity),
+    averageExecutionPrice: cleanNumber(fill.averageExecutionPrice),
+    quoteValue: cleanNumber(fill.quoteValue)
+  };
+  if (fill.fee) {
+    result.feeAmount = cleanNumber(fill.fee.amount);
+    result.feeCurrency = fill.fee.currency;
+  }
+  return Object.fromEntries(
+    Object.entries(result).filter(([, value]) => value !== undefined && value !== null && value !== "")
+  );
+}
+
+function isFullActionFill({ action, fill }) {
+  const requestedQuantity = Number(action.order?.quantity || 0);
+  if (!Number.isFinite(requestedQuantity) || requestedQuantity <= 0) return false;
+  return Number(fill?.grossQuantity || fill?.quantity || 0) >= requestedQuantity - 1e-12;
 }
 
 function findTrade({ batches, order }) {
