@@ -168,6 +168,11 @@ async function runBatchStrategy({ client, config, snapshot }) {
       portfolioAfterOrder: nextPortfolio
     });
 
+    if (!hasFilledQuantity(fill)) {
+      previousPortfolio = nextPortfolio;
+      continue;
+    }
+
     applyFilledBatchAction({
       batches: updatedBatches,
       action,
@@ -177,7 +182,7 @@ async function runBatchStrategy({ client, config, snapshot }) {
       now: snapshot.at
     });
 
-    if (action.kind === "TAKE_PROFIT" && action.dustQuantity > 0) {
+    if (action.kind === "TAKE_PROFIT" && isFullActionFill({ action, fill }) && action.dustQuantity > 0) {
       addDust(updatedDustBank, {
         asset: config.baseAsset,
         quantity: action.dustQuantity,
@@ -331,7 +336,25 @@ function inferFillFromOrderDetail({ action, orderResult, orderDetail, fallbackFi
   const orderId = row?.order_id || getOrderId(orderResult);
   const status = row?.status || "";
 
-  if (!row || !Number.isFinite(grossQuantity) || grossQuantity <= 0) {
+  if (row && (!Number.isFinite(grossQuantity) || grossQuantity <= 0)) {
+    return {
+      source: "order_detail",
+      orderId,
+      status,
+      quantity: 0,
+      grossQuantity: 0,
+      netQuantity: 0,
+      price: 0,
+      averageExecutionPrice: Number.isFinite(averageExecutionPrice) ? averageExecutionPrice : 0,
+      quoteValue: 0,
+      fee: Number.isFinite(feeAmount) && feeAmount > 0 ? { amount: feeAmount, currency: feeCurrency } : null,
+      pending: true,
+      baseDelta: 0,
+      quoteDelta: 0
+    };
+  }
+
+  if (!row) {
     return {
       ...fallbackFill,
       source: "portfolio_delta",
@@ -416,24 +439,34 @@ function inferFillFromPortfolioDelta({ action, before, after, fallbackPrice }) {
   const quoteDelta = after.quoteTotal - before.quoteTotal;
 
   if (action.order.side === "BUY") {
-    const quantity = baseDelta > 0 ? baseDelta : Number(action.order.quantity);
+    const quantity = baseDelta > 0 ? baseDelta : 0;
     const quoteSpent = quoteDelta < 0 ? Math.abs(quoteDelta) : quantity * fallbackPrice;
     return {
       quantity,
-      price: quoteSpent / quantity,
+      price: quantity > 0 ? quoteSpent / quantity : 0,
       baseDelta,
       quoteDelta
     };
   }
 
-  const quantity = baseDelta < 0 ? Math.abs(baseDelta) : Number(action.order.quantity);
+  const quantity = baseDelta < 0 ? Math.abs(baseDelta) : 0;
   const quoteReceived = quoteDelta > 0 ? quoteDelta : quantity * fallbackPrice;
   return {
     quantity,
-    price: quoteReceived / quantity,
+    price: quantity > 0 ? quoteReceived / quantity : 0,
     baseDelta,
     quoteDelta
   };
+}
+
+function hasFilledQuantity(fill) {
+  return Number.isFinite(fill?.quantity) && fill.quantity > 0 && Number.isFinite(fill?.price) && fill.price > 0;
+}
+
+function isFullActionFill({ action, fill }) {
+  const requestedQuantity = Number(action.order?.quantity || 0);
+  if (!Number.isFinite(requestedQuantity) || requestedQuantity <= 0) return false;
+  return Number(fill?.grossQuantity || fill?.quantity || 0) >= requestedQuantity - 1e-12;
 }
 
 function sleep(ms) {
