@@ -197,6 +197,10 @@ function startOfUtcDayMs(nowMs) {
 }
 
 export function applyFilledBatchAction({ batches, action, fillPrice, filledQuantity, fill = null, now }) {
+  if (!Number.isFinite(filledQuantity) || filledQuantity <= 0 || !Number.isFinite(fillPrice) || fillPrice <= 0) {
+    return;
+  }
+
   if (action.kind === "BASE_BUY") {
     batches.push({
       id: `batch_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
@@ -239,10 +243,16 @@ export function applyFilledBatchAction({ batches, action, fillPrice, filledQuant
   }
 
   if (action.kind === "TAKE_PROFIT") {
-    batch.status = "CLOSED";
-    batch.closedAt = now;
+    const fullActionFill = isFullActionFill({ action, fill });
+    const originalQuantity = batch.quantity;
+    if (fullActionFill) {
+      batch.status = "CLOSED";
+      batch.closedAt = now;
+      batch.dustQuantity = cleanQuantity(originalQuantity - filledQuantity);
+    } else {
+      batch.quantity = cleanQuantity(originalQuantity - filledQuantity);
+    }
     batch.updatedAt = now;
-    batch.dustQuantity = Math.max(0, Number((batch.quantity - filledQuantity).toFixed(12)));
     batch.sells.push({
       at: now,
       quantity: filledQuantity,
@@ -275,6 +285,12 @@ function trimQuantity(quantity) {
 
 function cleanQuantity(quantity) {
   return Math.max(0, Number(Number(quantity).toFixed(12)));
+}
+
+function isFullActionFill({ action, fill }) {
+  const requestedQuantity = Number(action.order?.quantity || 0);
+  if (!Number.isFinite(requestedQuantity) || requestedQuantity <= 0) return false;
+  return Number(fill?.grossQuantity || fill?.quantity || 0) >= requestedQuantity - 1e-12;
 }
 
 function tradeFillFields(fill) {
