@@ -196,7 +196,7 @@ function startOfUtcDayMs(nowMs) {
   return Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
 }
 
-export function applyFilledBatchAction({ batches, action, fillPrice, filledQuantity, now }) {
+export function applyFilledBatchAction({ batches, action, fillPrice, filledQuantity, fill = null, now }) {
   if (action.kind === "BASE_BUY") {
     batches.push({
       id: `batch_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
@@ -210,7 +210,8 @@ export function applyFilledBatchAction({ batches, action, fillPrice, filledQuant
           at: now,
           quantity: filledQuantity,
           price: fillPrice,
-          reason: action.kind
+          reason: action.kind,
+          ...tradeFillFields(fill)
         }
       ],
       sells: []
@@ -231,7 +232,8 @@ export function applyFilledBatchAction({ batches, action, fillPrice, filledQuant
       at: now,
       quantity: filledQuantity,
       price: fillPrice,
-      reason: action.kind
+      reason: action.kind,
+      ...tradeFillFields(fill)
     });
     return;
   }
@@ -245,7 +247,8 @@ export function applyFilledBatchAction({ batches, action, fillPrice, filledQuant
       at: now,
       quantity: filledQuantity,
       price: fillPrice,
-      reason: action.kind
+      reason: action.kind,
+      ...tradeFillFields(fill)
     });
   }
 }
@@ -272,4 +275,24 @@ function trimQuantity(quantity) {
 
 function cleanQuantity(quantity) {
   return Math.max(0, Number(Number(quantity).toFixed(12)));
+}
+
+function tradeFillFields(fill) {
+  if (!fill) return {};
+  const result = {
+    orderId: fill.orderId || "",
+    orderStatus: fill.status || "",
+    fillSource: fill.source || "",
+    grossQuantity: fill.grossQuantity,
+    netQuantity: fill.netQuantity,
+    averageExecutionPrice: fill.averageExecutionPrice,
+    quoteValue: fill.quoteValue
+  };
+  if (fill.fee) {
+    result.feeAmount = fill.fee.amount;
+    result.feeCurrency = fill.fee.currency;
+  }
+  return Object.fromEntries(
+    Object.entries(result).filter(([, value]) => value !== undefined && value !== null && value !== "")
+  );
 }
