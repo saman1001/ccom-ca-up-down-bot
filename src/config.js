@@ -67,6 +67,12 @@ export function loadConfig() {
     baseBuyCooldownMinutes: numberEnv("BASE_BUY_COOLDOWN_MINUTES", numberEnv("CHECK_INTERVAL_MINUTES", 60)),
     dustSellQuantity: numberEnv("DUST_SELL_QUANTITY", 20),
     checkIntervalMinutes: numberEnv("CHECK_INTERVAL_MINUTES", 60),
+    telegramBotToken: process.env.TELEGRAM_BOT_TOKEN || "",
+    telegramChatId: process.env.TELEGRAM_CHAT_ID || "",
+    notificationCooldownMinutes: numberEnv("NOTIFICATION_COOLDOWN_MINUTES", 60),
+    lowQuoteBalanceAlert: numberEnv("LOW_QUOTE_BALANCE_ALERT", numberEnv("MIN_QUOTE_BALANCE", 0)),
+    repeatedFailureAlertCount: numberEnv("REPEATED_FAILURE_ALERT_COUNT", 3),
+    dailyReportEnabled: boolEnv("DAILY_REPORT_ENABLED", true),
     logDir: path.resolve(process.env.LOG_DIR || "logs")
   };
 }
