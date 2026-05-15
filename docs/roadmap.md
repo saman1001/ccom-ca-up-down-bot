@@ -44,7 +44,6 @@
 
 - [x] Pridat maximalny pocet otvorenych davok (`MAX_OPEN_BATCHES`).
 - [x] Pridat denny limit novych zakladnych nakupov (`DAILY_BASE_BUY_LIMIT`).
-- [ ] Pridat denny limit nakupov v quote mene (`DAILY_SPEND_CAP_QUOTE`).
 - [ ] Pridat minimalny quote zostatok, pod ktorym bot prestane nakupovat (`MIN_QUOTE_BALANCE`).
 - [ ] Pridat maximalny celkovy objem drzaneho base assetu (`MAX_BASE_EXPOSURE`).
 - [ ] Pridat kontrolu, ze bot neobchoduje, ak burza vracia podozrive alebo neuplne data.
