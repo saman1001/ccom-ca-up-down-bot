@@ -44,10 +44,9 @@
 
 - [x] Pridat maximalny pocet otvorenych davok (`MAX_OPEN_BATCHES`).
 - [x] Pridat denny limit novych zakladnych nakupov (`DAILY_BASE_BUY_LIMIT`).
-- [ ] Pridat minimalny quote zostatok, pod ktorym bot prestane nakupovat (`MIN_QUOTE_BALANCE`).
-- [ ] Pridat maximalny celkovy objem drzaneho base assetu (`MAX_BASE_EXPOSURE`).
-- [ ] Pridat kontrolu, ze bot neobchoduje, ak burza vracia podozrive alebo neuplne data.
-- [ ] Pridat validaciu nastaveni pri starte: par, minimalny order, velkost davky, trading/dry-run a log adresar.
+- [x] Pridat minimalny quote zostatok, pod ktorym bot prestane nakupovat (`MIN_QUOTE_BALANCE`).
+- [x] Pridat kontrolu, ze bot neobchoduje, ak burza vracia podozrive alebo neuplne data.
+- [x] Pridat validaciu nastaveni pri starte: par, minimalny order, velkost davky, trading/dry-run a log adresar.
 
 ## Davkova strategia
 
