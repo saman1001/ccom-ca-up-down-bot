@@ -669,6 +669,8 @@ function checkConfig() {
     apiSecret: config.apiSecret ? "(set)" : "(missing)",
     telegramBotToken: config.telegramBotToken ? "(set)" : "(missing)",
     telegramChatId: config.telegramChatId ? "(set)" : "(missing)",
+    emailReportTo: config.emailReportTo ? "(set)" : "(missing)",
+    emailReportFrom: config.emailReportFrom ? "(set)" : "(missing)",
     validation: validationProblems.length ? { ok: false, problems: validationProblems } : { ok: true, problems: [] }
   };
   console.log(JSON.stringify(safeConfig, null, 2));
