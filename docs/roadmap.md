@@ -95,11 +95,11 @@
 
 ## Upozornenia
 
-- [ ] Pridat notifikaciu pri chybe API.
-- [ ] Pridat notifikaciu pri predaji davky.
-- [ ] Pridat denny Telegram/e-mail report.
-- [ ] Pridat upozornenie pri nizkom quote zostatku.
-- [ ] Pridat upozornenie, ak bot niekolko intervalov za sebou nevie spravit plan alebo zapisat log.
+- [x] Pridat notifikaciu pri chybe API.
+- [x] Pridat notifikaciu pri predaji davky.
+- [x] Pridat denny Telegram report, ked je nastaveny Telegram.
+- [x] Pridat upozornenie pri nizkom quote zostatku.
+- [x] Pridat upozornenie, ak bot niekolko intervalov za sebou nevie spravit plan alebo zapisat log.
 
 ## Testovanie a simulacie
 
