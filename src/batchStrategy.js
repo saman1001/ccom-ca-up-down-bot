@@ -113,6 +113,8 @@ export function buildBatchPlan({ batches, dustBank, instrumentRules, price, conf
     const lastBaseBuyAt = lastBaseBuy ? new Date(lastBaseBuy.at).getTime() : 0;
     const nowMs = new Date(now).getTime();
     const maxOpenBatches = Math.max(0, Number(config.maxOpenBatches || 0));
+    const dailyBaseBuyLimit = Math.max(0, Number(config.dailyBaseBuyLimit || 0));
+    const baseBuysToday = countBaseBuysSince(batches, startOfUtcDayMs(nowMs));
 
     if (maxOpenBatches > 0 && openBatchCount >= maxOpenBatches) {
       actions.push({
@@ -120,6 +122,13 @@ export function buildBatchPlan({ batches, dustBank, instrumentRules, price, conf
         batchId: null,
         order: null,
         reason: `Open batch count ${openBatchCount} reached limit of ${maxOpenBatches}.`
+      });
+    } else if (dailyBaseBuyLimit > 0 && baseBuysToday >= dailyBaseBuyLimit) {
+      actions.push({
+        kind: "SKIP_BASE_BUY_DAILY_LIMIT",
+        batchId: null,
+        order: null,
+        reason: `Base buys today ${baseBuysToday} reached daily limit of ${dailyBaseBuyLimit}.`
       });
     } else if (lastBaseBuy && Number.isFinite(lastBaseBuyAt) && nowMs - lastBaseBuyAt < cooldownMs) {
       actions.push({
@@ -165,6 +174,26 @@ function findLastBaseBuy(batches) {
     }
   }
   return latest;
+}
+
+function countBaseBuysSince(batches, startMs) {
+  let count = 0;
+  for (const batch of batches) {
+    for (const buy of batch.buys || []) {
+      if (buy.reason !== "BASE_BUY") continue;
+      const atMs = new Date(buy.at).getTime();
+      if (Number.isFinite(atMs) && atMs >= startMs) {
+        count += 1;
+      }
+    }
+  }
+  return count;
+}
+
+function startOfUtcDayMs(nowMs) {
+  const now = new Date(nowMs);
+  if (!Number.isFinite(now.getTime())) return 0;
+  return Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
 }
 
 export function applyFilledBatchAction({ batches, action, fillPrice, filledQuantity, now }) {
