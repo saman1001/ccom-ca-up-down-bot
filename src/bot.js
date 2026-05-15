@@ -371,7 +371,8 @@ function assertMarketDataSafe({ price, portfolio, previous, config }) {
       );
     }
   }
-}\n
+}
+
 function applyPlanSafetyGuards({ plan, portfolio, price, config }) {
   let remainingQuote = portfolio.quoteAvailable;
   return {
