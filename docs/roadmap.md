@@ -25,12 +25,12 @@
 
 ### Spolahlivost obchodov
 
-- [ ] Pridat `client_oid` ku kazdemu orderu tak, aby bol deterministicky a pouzitelny pri opakovani po pade.
-- [ ] Pred odoslanim orderu zapisat pending akciu do `logs/orders.jsonl`.
-- [ ] Po uspesnom `private/create-order` zapisat `order_id` a stav orderu.
-- [ ] Pri chybe po odoslani orderu ulozit stav a nepokracovat tak, aby vznikol duplicitny nakup.
-- [ ] Pri starte bota zosuladit pending ordery cez `private/get-order-detail` alebo trade history.
-- [ ] Zabranit opakovanemu odoslaniu rovnakej akcie po pade bota.
+- [x] Pridat `client_oid` ku kazdemu orderu tak, aby bol deterministicky a pouzitelny pri opakovani po pade.
+- [x] Pred odoslanim orderu zapisat pending akciu do `logs/orders.jsonl`.
+- [x] Po uspesnom `private/create-order` zapisat `order_id` a stav orderu.
+- [x] Pri chybe po odoslani orderu ulozit stav a nepokracovat tak, aby vznikol duplicitny nakup.
+- [x] Pri starte bota zosuladit pending ordery cez `private/get-order-detail` alebo trade history.
+- [x] Zabranit opakovanemu odoslaniu rovnakej akcie po pade bota.
 
 ### Presnost fillov a priemerov
 
