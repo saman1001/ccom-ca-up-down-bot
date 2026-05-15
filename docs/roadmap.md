@@ -34,11 +34,11 @@
 
 ### Presnost fillov a priemerov
 
-- [ ] Nahradit balance-delta vypocet fillu presnym citanim `private/get-order-detail` alebo `private/get-trades`.
-- [ ] Ukladat k davke `order_id`, priemernu fill cenu, gross quantity, net quantity, fee a fee currency.
+- [x] Nahradit balance-delta vypocet fillu presnym citanim `private/get-order-detail` alebo `private/get-trades`.
+- [x] Ukladat k davke `order_id`, priemernu fill cenu, gross quantity, net quantity, fee a fee currency.
 - [ ] Osetrit partial fill a oneskorene fillnutie orderu.
 - [ ] Pridat repair/reconcile prikaz, ktory spatne zosuladi `batches.json` s trade history.
-- [ ] V reportoch oddelit poplatky, dust a cisty zisk podla skutocnych fillov z burzy.
+- [x] V reportoch oddelit poplatky, dust a cisty zisk podla skutocnych fillov z burzy.
 
 ### Bezpecnostne poistky
 
@@ -107,7 +107,7 @@
 - [ ] Pridat backtest na historickych datach.
 - [ ] Pridat testy pre vypocet priemernej ceny davky.
 - [ ] Pridat testy pre pravidla dokupu a predaja.
-- [ ] Pridat testy pre zaokruhlovanie quantity a dust bank.
+- [ ] Prid testy pre zaokruhlovanie quantity a dust bank.
 - [ ] Pridat simulator scenarov: prudky pad, pomaly rast, sideways trh.
 - [ ] Pridat porovnavanie strategii a hladanie vhodnych percent pre clanok.
 
