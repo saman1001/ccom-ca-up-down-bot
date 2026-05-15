@@ -8,6 +8,7 @@ import { addDust, loadDustBank, saveDustBank, subtractDust } from "./dustBank.js
 import { loadInstrumentRules } from "./instrumentRules.js";
 import { generateReport } from "./report.js";
 import { appendOrderEvent, isTerminalOrderStatus, latestOrderEventByClientOid, loadOrderLedger } from "./orderLedger.js";
+import { appendPriceHistory } from "./priceHistory.js";
 import {
   notifyDailyReportIfNeeded,
   notifyLowQuoteBalanceIfNeeded,
@@ -56,6 +57,12 @@ async function runOnce() {
     price,
     portfolio
   };
+  appendPriceHistory(config.logDir, {
+    at: snapshot.at,
+    instrument: config.instrument,
+    price,
+    quoteAsset: config.quoteAsset
+  });
   await notifyLowQuoteBalanceIfNeeded(config, portfolio);
 
   if (config.strategy === "batches") {
