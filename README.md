@@ -130,6 +130,7 @@ Batch behavior:
 - every normal run can buy a base batch of `BATCH_QUANTITY`,
 - `BASE_BUY_COOLDOWN_MINUTES` prevents extra base buys after service restarts,
 - `MAX_OPEN_BATCHES` can stop new base buys when too many batches are already open; `0` means unlimited,
+- `DAILY_BASE_BUY_LIMIT` can stop new base buys after too many base buys in the current UTC day; `0` means unlimited,
 - every batch is tracked separately,
 - if price drops by `AVERAGE_DOWN_DROP_PCT` below a batch average, the bot can buy more into that batch,
 - a batch can grow only up to `MAX_BATCH_QUANTITY`,
@@ -138,14 +139,17 @@ Batch behavior:
 - leftovers from rounded sells go to `dust-bank.json`,
 - old open batches continue after restart because they are stored in logs.
 
-Example safety limit:
+Example safety limits:
 
 ```env
 # 0 means unlimited. 30 means no new base batch when 30 batches are open.
 MAX_OPEN_BATCHES=30
+
+# 0 means unlimited. 6 means at most 6 new base batches per UTC day.
+DAILY_BASE_BUY_LIMIT=6
 ```
 
-The max-open-batches limit only blocks new `BASE_BUY` actions. It does not block average-down buys into batches that already exist.
+These limits only block new `BASE_BUY` actions. They do not block average-down buys into batches that already exist.
 
 Older `STRATEGY=updown` still exists as a simple starting strategy:
 
