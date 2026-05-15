@@ -30,6 +30,7 @@ The bot can:
 - take profit by selling a whole batch when price rises,
 - keep rounded-off leftovers in a dust bank,
 - write snapshots after every run,
+- store hourly price history for later backtests,
 - generate dashboards and CSV reports.
 
 Current common setup uses two independent pairs:
@@ -192,6 +193,33 @@ ENV_FILE=.env.cro-usd node src/bot.js once
 ENV_FILE=.env.btc-usd node src/bot.js once
 ```
 
+## Price History
+
+Every successful bot run stores a small price-history row in the active `LOG_DIR`:
+
+```text
+logs/cro-usd/price-history.jsonl
+logs/cro-usd/price-history.csv
+logs/btc-usd/price-history.jsonl
+logs/btc-usd/price-history.csv
+```
+
+This is meant for later backtests and strategy research. The bot writes at most one row per UTC hour per pair, so service restarts do not create duplicate hourly price points.
+
+CSV columns:
+
+```text
+at,hour,instrument,price,quote_asset,source
+```
+
+Example row:
+
+```text
+2026-05-15T22:35:27.116Z,2026-05-15T22,BTC_USD,79039.65,USD,ticker
+```
+
+These files are runtime logs. Do not commit real VPS log output to the public repository.
+
 ## Reports
 
 Generate a report for the active env/log directory:
@@ -259,6 +287,7 @@ If you run a second pair, use a second service with its own env file and log dir
 
 ```text
 src/bot.js              Main bot command: check, once, watch
+src/priceHistory.js     Hourly price history logger for future backtests
 src/report.js           HTML and CSV report generator
 src/health.js           Basic health check for env/log freshness
 src/backup-logs.js      Local log backup helper
