@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import { loadConfig } from "./config.js";
 import { CryptoComClient } from "./cryptoComClient.js";
 import { extractBalances, extractTickerPrice, portfolioValue } from "./portfolio.js";
@@ -6,6 +7,7 @@ import { appendSnapshot, ensureLogDir, readPreviousSnapshot } from "./storage.js
 import { addDust, loadDustBank, saveDustBank, subtractDust } from "./dustBank.js";
 import { loadInstrumentRules } from "./instrumentRules.js";
 import { generateReport } from "./report.js";
+import { appendOrderEvent, isTerminalOrderStatus, latestOrderEventByClientOid, loadOrderLedger } from "./orderLedger.js";
 import {
   applyDryRunBatchPlan,
   applyFilledBatchAction,
@@ -123,6 +125,7 @@ async function runBatchStrategy({ client, config, snapshot }) {
 
   const updatedBatches = JSON.parse(JSON.stringify(batches));
   const updatedDustBank = JSON.parse(JSON.stringify(dustBank));
+  const orderEvents = loadOrderLedger(config.logDir);
   result.orderResults = [];
   let previousPortfolio = snapshot.portfolio;
 
@@ -135,9 +138,73 @@ async function runBatchStrategy({ client, config, snapshot }) {
       continue;
     }
 
-    const orderResult = await client.privatePost("private/create-order", action.order);
+    const order = {
+      ...action.order,
+      client_oid: buildClientOid({ action, config, now: snapshot.at })
+    };
+    const actionWithClientOid = {
+      ...action,
+      order
+    };
+    const existingOrder = latestOrderEventByClientOid(orderEvents, order.client_oid);
+    let orderResult = null;
+    let recoveredFromLedger = false;
+
+    if (existingOrder && !isTerminalOrderStatus(existingOrder.status)) {
+      recoveredFromLedger = true;
+    }
+
+    if (!recoveredFromLedger) {
+      appendOrderEvent(config.logDir, {
+        status: "PENDING",
+        instrument: config.instrument,
+        clientOid: order.client_oid,
+        action: sanitizeLedgerAction(actionWithClientOid)
+      });
+      orderEvents.push({ status: "PENDING", clientOid: order.client_oid });
+    }
+
+    const recoveredOrderDetail = recoveredFromLedger
+      ? await loadOrderDetailByIdentifiers({
+          client,
+          orderId: existingOrder.orderId || "",
+          clientOid: order.client_oid
+        })
+      : null;
+
+    if (!hasOrderDetailRow(recoveredOrderDetail)) {
+      try {
+        orderResult = await client.privatePost("private/create-order", order);
+        appendOrderEvent(config.logDir, {
+          status: "CREATED",
+          instrument: config.instrument,
+          clientOid: order.client_oid,
+          orderId: getOrderId(orderResult),
+          action: sanitizeLedgerAction(actionWithClientOid)
+        });
+        orderEvents.push({ status: "CREATED", clientOid: order.client_oid, orderId: getOrderId(orderResult) });
+      } catch (error) {
+        appendOrderEvent(config.logDir, {
+          status: "CREATE_ERROR",
+          instrument: config.instrument,
+          clientOid: order.client_oid,
+          orderId: "",
+          action: sanitizeLedgerAction(actionWithClientOid),
+          error: error.message
+        });
+        throw error;
+      }
+    } else {
+      orderResult = {
+        result: {
+          order_id: getOrderIdFromDetail(recoveredOrderDetail),
+          client_oid: order.client_oid
+        }
+      };
+    }
+
     await sleep(1500);
-    const orderDetail = await loadOrderDetailSafely({ client, orderResult });
+    const orderDetail = recoveredOrderDetail || await loadOrderDetailSafely({ client, orderResult, clientOid: order.client_oid });
     const balanceAfterOrder = await client.privatePost("private/user-balance", {});
     const balancesAfterOrder = extractBalances(balanceAfterOrder);
     const nextPortfolio = portfolioValue({
@@ -147,21 +214,39 @@ async function runBatchStrategy({ client, config, snapshot }) {
       price: snapshot.price
     });
     const fallbackFill = inferFillFromPortfolioDelta({
-      action,
+      action: actionWithClientOid,
       before: previousPortfolio,
       after: nextPortfolio,
       fallbackPrice: snapshot.price
     });
     const fill = inferFillFromOrderDetail({
-      action,
+      action: actionWithClientOid,
       orderResult,
       orderDetail,
       fallbackFill,
       config
     });
 
+    appendOrderEvent(config.logDir, {
+      status: hasFilledQuantity(fill) ? "FILLED" : "NO_FILL",
+      instrument: config.instrument,
+      clientOid: order.client_oid,
+      orderId: fill.orderId || getOrderId(orderResult),
+      action: sanitizeLedgerAction(actionWithClientOid),
+      orderDetail: sanitizeOrderDetail(orderDetail),
+      fill: sanitizeLedgerFill(fill)
+    });
+    orderEvents.push({
+      status: hasFilledQuantity(fill) ? "FILLED" : "NO_FILL",
+      clientOid: order.client_oid,
+      orderId: fill.orderId || getOrderId(orderResult)
+    });
+
     result.orderResults.push({
-      action,
+      action: actionWithClientOid,
+      recoveredFromLedger,
+      previousStatus: recoveredFromLedger ? existingOrder.status : "",
+      previousOrderId: recoveredFromLedger ? existingOrder.orderId || "" : "",
       orderResult,
       orderDetail: sanitizeOrderDetail(orderDetail),
       fill,
@@ -175,14 +260,14 @@ async function runBatchStrategy({ client, config, snapshot }) {
 
     applyFilledBatchAction({
       batches: updatedBatches,
-      action,
+      action: actionWithClientOid,
       fillPrice: fill.price,
       filledQuantity: fill.quantity,
       fill,
       now: snapshot.at
     });
 
-    if (action.kind === "TAKE_PROFIT" && isFullActionFill({ action, fill }) && action.dustQuantity > 0) {
+    if (action.kind === "TAKE_PROFIT" && isFullActionFill({ action: actionWithClientOid, fill }) && action.dustQuantity > 0) {
       addDust(updatedDustBank, {
         asset: config.baseAsset,
         quantity: action.dustQuantity,
@@ -313,15 +398,21 @@ function estimateQuoteSpend(order, price) {
   return Number(order.quantity || 0) * price;
 }
 
-async function loadOrderDetailSafely({ client, orderResult }) {
+async function loadOrderDetailSafely({ client, orderResult, clientOid = "" }) {
   const orderId = getOrderId(orderResult);
-  if (!orderId) return null;
+  if (!orderId && !clientOid) return null;
+  return loadOrderDetailByIdentifiers({ client, orderId, clientOid });
+}
+
+async function loadOrderDetailByIdentifiers({ client, orderId = "", clientOid = "" }) {
   try {
-    return await client.privatePost("private/get-order-detail", { order_id: orderId });
+    if (orderId) return await client.privatePost("private/get-order-detail", { order_id: orderId });
+    return await client.privatePost("private/get-order-detail", { client_oid: clientOid });
   } catch (error) {
     return {
       error: error.message,
-      orderId
+      orderId,
+      clientOid
     };
   }
 }
@@ -430,8 +521,67 @@ function sanitizeOrderDetail(orderDetail) {
   };
 }
 
+function hasOrderDetailRow(orderDetail) {
+  return Boolean(orderDetail?.result?.order_info || orderDetail?.result?.data || orderDetail?.result?.order_id);
+}
+
 function getOrderId(orderResult) {
   return orderResult?.result?.order_id || orderResult?.result?.data?.order_id || "";
+}
+
+function getOrderIdFromDetail(orderDetail) {
+  const row = orderDetail?.result?.order_info || orderDetail?.result?.data || orderDetail?.result;
+  return row?.order_id || "";
+}
+
+function buildClientOid({ action, config, now }) {
+  const intervalMs = Math.max(1, Number(config.checkIntervalMinutes || 60)) * 60 * 1000;
+  const nowMs = new Date(now).getTime();
+  const bucket = Number.isFinite(nowMs) ? Math.floor(nowMs / intervalMs) : Math.floor(Date.now() / intervalMs);
+  const source = [
+    config.instrument,
+    action.kind,
+    action.batchId || "none",
+    action.order?.side || "",
+    action.order?.type || "",
+    action.order?.quantity || "",
+    bucket
+  ].join("|");
+  return `ccbot_${crypto.createHash("sha256").update(source).digest("hex").slice(0, 24)}`;
+}
+
+function sanitizeLedgerAction(action) {
+  return {
+    kind: action.kind,
+    batchId: action.batchId || null,
+    order: action.order
+      ? {
+          instrument_name: action.order.instrument_name,
+          side: action.order.side,
+          type: action.order.type,
+          quantity: action.order.quantity,
+          client_oid: action.order.client_oid
+        }
+      : null,
+    reason: action.reason || ""
+  };
+}
+
+function sanitizeLedgerFill(fill) {
+  if (!fill) return null;
+  return {
+    source: fill.source || "",
+    orderId: fill.orderId || "",
+    status: fill.status || "",
+    quantity: fill.quantity || 0,
+    grossQuantity: fill.grossQuantity || 0,
+    netQuantity: fill.netQuantity || 0,
+    price: fill.price || 0,
+    averageExecutionPrice: fill.averageExecutionPrice || 0,
+    quoteValue: fill.quoteValue || 0,
+    fee: fill.fee || null,
+    pending: Boolean(fill.pending)
+  };
 }
 
 function inferFillFromPortfolioDelta({ action, before, after, fallbackPrice }) {
