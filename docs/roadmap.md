@@ -97,7 +97,7 @@
 
 - [x] Pridat notifikaciu pri chybe API.
 - [x] Pridat notifikaciu pri predaji davky.
-- [x] Pridat denny Telegram report, ked je nastaveny Telegram.
+- [x] Pridat denny Telegram alebo email report, ked je nastavene odosielanie.
 - [x] Pridat upozornenie pri nizkom quote zostatku.
 - [x] Pridat upozornenie, ak bot niekolko intervalov za sebou nevie spravit plan alebo zapisat log.
 
