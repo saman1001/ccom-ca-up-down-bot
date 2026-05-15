@@ -137,6 +137,7 @@ async function runBatchStrategy({ client, config, snapshot }) {
 
     const orderResult = await client.privatePost("private/create-order", action.order);
     await sleep(1500);
+    const orderDetail = await loadOrderDetailSafely({ client, orderResult });
     const balanceAfterOrder = await client.privatePost("private/user-balance", {});
     const balancesAfterOrder = extractBalances(balanceAfterOrder);
     const nextPortfolio = portfolioValue({
@@ -145,16 +146,24 @@ async function runBatchStrategy({ client, config, snapshot }) {
       quoteAsset: config.quoteAsset,
       price: snapshot.price
     });
-    const fill = inferFillFromPortfolioDelta({
+    const fallbackFill = inferFillFromPortfolioDelta({
       action,
       before: previousPortfolio,
       after: nextPortfolio,
       fallbackPrice: snapshot.price
     });
+    const fill = inferFillFromOrderDetail({
+      action,
+      orderResult,
+      orderDetail,
+      fallbackFill,
+      config
+    });
 
     result.orderResults.push({
       action,
       orderResult,
+      orderDetail: sanitizeOrderDetail(orderDetail),
       fill,
       portfolioAfterOrder: nextPortfolio
     });
@@ -164,6 +173,7 @@ async function runBatchStrategy({ client, config, snapshot }) {
       action,
       fillPrice: fill.price,
       filledQuantity: fill.quantity,
+      fill,
       now: snapshot.at
     });
 
@@ -296,6 +306,109 @@ function applyOrderSafetyGuard({ order, portfolio, price, config }) {
 
 function estimateQuoteSpend(order, price) {
   return Number(order.quantity || 0) * price;
+}
+
+async function loadOrderDetailSafely({ client, orderResult }) {
+  const orderId = getOrderId(orderResult);
+  if (!orderId) return null;
+  try {
+    return await client.privatePost("private/get-order-detail", { order_id: orderId });
+  } catch (error) {
+    return {
+      error: error.message,
+      orderId
+    };
+  }
+}
+
+function inferFillFromOrderDetail({ action, orderResult, orderDetail, fallbackFill, config }) {
+  const row = orderDetail?.result?.order_info || orderDetail?.result?.data || orderDetail?.result;
+  const grossQuantity = Number(row?.cumulative_quantity ?? row?.quantity ?? 0);
+  const quoteValue = Number(row?.cumulative_value ?? row?.order_value ?? 0);
+  const averageExecutionPrice = Number(row?.avg_price ?? 0);
+  const feeAmount = Number(row?.cumulative_fee ?? 0);
+  const feeCurrency = row?.fee_instrument_name || row?.fee_currency || "";
+  const orderId = row?.order_id || getOrderId(orderResult);
+  const status = row?.status || "";
+
+  if (!row || !Number.isFinite(grossQuantity) || grossQuantity <= 0) {
+    return {
+      ...fallbackFill,
+      source: "portfolio_delta",
+      orderId,
+      status,
+      fee: Number.isFinite(feeAmount) && feeAmount > 0 ? { amount: feeAmount, currency: feeCurrency } : null
+    };
+  }
+
+  const fee = Number.isFinite(feeAmount) && feeAmount > 0 ? { amount: feeAmount, currency: feeCurrency } : null;
+  const grossQuoteValue = Number.isFinite(quoteValue) && quoteValue > 0
+    ? quoteValue
+    : grossQuantity * (Number.isFinite(averageExecutionPrice) && averageExecutionPrice > 0 ? averageExecutionPrice : fallbackFill.price);
+
+  if (action.order.side === "BUY") {
+    const netQuantity = feeCurrency === config.baseAsset ? Math.max(0, grossQuantity - feeAmount) : grossQuantity;
+    const totalQuoteCost = feeCurrency === config.quoteAsset ? grossQuoteValue + feeAmount : grossQuoteValue;
+    const price = netQuantity > 0 ? totalQuoteCost / netQuantity : fallbackFill.price;
+    return {
+      source: "order_detail",
+      orderId,
+      status,
+      quantity: netQuantity,
+      grossQuantity,
+      netQuantity,
+      price,
+      averageExecutionPrice: averageExecutionPrice || grossQuoteValue / grossQuantity,
+      quoteValue: grossQuoteValue,
+      fee,
+      baseDelta: netQuantity,
+      quoteDelta: -totalQuoteCost
+    };
+  }
+
+  const netQuoteValue = feeCurrency === config.quoteAsset ? Math.max(0, grossQuoteValue - feeAmount) : grossQuoteValue;
+  const price = grossQuantity > 0 ? netQuoteValue / grossQuantity : fallbackFill.price;
+  return {
+    source: "order_detail",
+    orderId,
+    status,
+    quantity: grossQuantity,
+    grossQuantity,
+    netQuantity: grossQuantity,
+    price,
+    averageExecutionPrice: averageExecutionPrice || grossQuoteValue / grossQuantity,
+    quoteValue: netQuoteValue,
+    fee,
+    baseDelta: -grossQuantity,
+    quoteDelta: netQuoteValue
+  };
+}
+
+function sanitizeOrderDetail(orderDetail) {
+  const row = orderDetail?.result?.order_info || orderDetail?.result?.data || orderDetail?.result;
+  if (!row) {
+    return orderDetail?.error ? { error: orderDetail.error, orderId: orderDetail.orderId || "" } : null;
+  }
+  return {
+    orderId: row.order_id || "",
+    clientOid: row.client_oid || "",
+    instrument: row.instrument_name || "",
+    side: row.side || "",
+    type: row.order_type || "",
+    status: row.status || "",
+    quantity: row.quantity || "",
+    averagePrice: row.avg_price || "",
+    cumulativeQuantity: row.cumulative_quantity || "",
+    cumulativeValue: row.cumulative_value || "",
+    cumulativeFee: row.cumulative_fee || "",
+    feeCurrency: row.fee_instrument_name || "",
+    createTime: row.create_time || null,
+    updateTime: row.update_time || null
+  };
+}
+
+function getOrderId(orderResult) {
+  return orderResult?.result?.order_id || orderResult?.result?.data?.order_id || "";
 }
 
 function inferFillFromPortfolioDelta({ action, before, after, fallbackPrice }) {
