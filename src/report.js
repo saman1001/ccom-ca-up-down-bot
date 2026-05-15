@@ -64,6 +64,7 @@ function buildReportData({ config, batches, dustBank, snapshots }) {
   const dailySummaries = buildDailySummaries(closedBatches, dustBank);
   const orders = extractOrders(snapshots);
   const feeStats = buildFeeStats({ batches, orders, dustBank });
+  const feePeriodStats = buildFeePeriodStats({ batches, orders, dustBank });
   const annualizedStats = buildAnnualizedStats({ closedStats, dustBank });
   const recentSnapshots = snapshots.slice(-240);
   const recentOrders = orders.slice(-50).reverse();
@@ -96,6 +97,7 @@ function buildReportData({ config, batches, dustBank, snapshots }) {
     recentOrders,
     orders,
     feeStats,
+    feePeriodStats,
     annualizedStats,
     dashboardTitle: `${config.instrument} Bot Dashboard`
   };
@@ -268,14 +270,14 @@ function extractOrders(snapshots) {
         quoteDelta: Number(result.fill?.quoteDelta ?? 0),
         fee: extractFee(result),
         skipped: result.skipped || false,
-        orderId: result.orderResult?.result?.order_id || ""
+        orderId: result.fill?.orderId || result.orderDetail?.orderId || result.orderResult?.result?.order_id || ""
       }));
     });
 }
 
 function buildFeeStats({ batches, orders, dustBank }) {
   const byCurrency = new Map();
-  for (const item of collectFeeItems({ batches, orders, dustBank })) {
+  for (const item of uniqueFeeItems(collectFeeItems({ batches, orders, dustBank }))) {
     if (!Number.isFinite(item.amount) || item.amount === 0) continue;
     const currency = item.currency || "UNKNOWN";
     const row = byCurrency.get(currency) || { currency, amount: 0, count: 0 };
@@ -286,6 +288,16 @@ function buildFeeStats({ batches, orders, dustBank }) {
   return Array.from(byCurrency.values()).sort((a, b) => a.currency.localeCompare(b.currency));
 }
 
+function buildFeePeriodStats({ batches, orders, dustBank }) {
+  const items = uniqueFeeItems(collectFeeItems({ batches, orders, dustBank }));
+  return {
+    daily: groupFeesByPeriod(items, "day"),
+    weekly: groupFeesByPeriod(items, "week"),
+    monthly: groupFeesByPeriod(items, "month"),
+    yearly: groupFeesByPeriod(items, "year")
+  };
+}
+
 function collectFeeItems({ batches, orders, dustBank }) {
   const items = [];
   for (const batch of batches) {
@@ -294,7 +306,7 @@ function collectFeeItems({ batches, orders, dustBank }) {
     }
   }
   for (const order of orders) {
-    addFeeIfPresent(items, order.fee);
+    addFeeIfPresent(items, { ...order.fee, at: order.at, orderId: order.orderId });
   }
   for (const entry of [...(dustBank.entries || []), ...(dustBank.sells || [])]) {
     addFeeIfPresent(items, entry);
@@ -305,25 +317,78 @@ function collectFeeItems({ batches, orders, dustBank }) {
 function addFeeIfPresent(items, source) {
   if (!source) return;
   if (source.amount !== undefined && source.currency !== undefined) {
-    items.push({ amount: Number(source.amount), currency: source.currency });
+    items.push({ amount: Number(source.amount), currency: source.currency, at: source.at || "", orderId: source.orderId || "" });
     return;
   }
   const amount = source.feeAmount ?? source.fee_amount ?? source.fee;
   const currency = source.feeCurrency ?? source.fee_currency ?? source.currency;
   if (amount !== undefined) {
-    items.push({ amount: Number(amount), currency });
+    items.push({ amount: Number(amount), currency, at: source.at || "", orderId: source.orderId || "" });
   }
+}
+
+function uniqueFeeItems(items) {
+  const seen = new Set();
+  const result = [];
+  for (const item of items) {
+    if (!Number.isFinite(item.amount) || item.amount === 0) continue;
+    const key = item.orderId
+      ? `${item.orderId}|${item.currency}|${Math.abs(item.amount)}`
+      : `${item.at}|${item.currency}|${Math.abs(item.amount)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(item);
+  }
+  return result;
+}
+
+function groupFeesByPeriod(items, periodType) {
+  const rows = new Map();
+  for (const item of items) {
+    const period = feePeriod(item.at, periodType);
+    if (!period) continue;
+    const currency = item.currency || "UNKNOWN";
+    const key = `${period}|${currency}`;
+    const row = rows.get(key) || { period, currency, amount: 0, count: 0 };
+    row.amount += Math.abs(item.amount);
+    row.count += 1;
+    rows.set(key, row);
+  }
+  return Array.from(rows.values()).sort((a, b) => b.period.localeCompare(a.period) || a.currency.localeCompare(b.currency));
+}
+
+function feePeriod(at, periodType) {
+  const date = new Date(at);
+  if (!Number.isFinite(date.getTime())) return "";
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(date.getUTCDate()).padStart(2, "0");
+  if (periodType === "day") return `${year}-${month}-${day}`;
+  if (periodType === "month") return `${year}-${month}`;
+  if (periodType === "year") return String(year);
+  return isoWeekKey(date);
+}
+
+function isoWeekKey(date) {
+  const copy = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  const day = copy.getUTCDay() || 7;
+  copy.setUTCDate(copy.getUTCDate() + 4 - day);
+  const yearStart = new Date(Date.UTC(copy.getUTCFullYear(), 0, 1));
+  const week = Math.ceil(((copy - yearStart) / 86400000 + 1) / 7);
+  return `${copy.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
 }
 
 function extractFee(result) {
   const candidates = [
     result.fill,
+    result.fill?.fee,
+    result.orderDetail,
     result.orderResult?.result,
     result.orderResult?.result?.data,
     result.orderResult?.result?.order_info
   ];
   for (const candidate of candidates) {
-    const amount = candidate?.feeAmount ?? candidate?.fee_amount ?? candidate?.fee;
+    const amount = candidate?.feeAmount ?? candidate?.fee_amount ?? candidate?.fee ?? candidate?.cumulativeFee;
     if (amount !== undefined) {
       return {
         amount: Number(amount),
@@ -355,6 +420,7 @@ function renderDashboard(data) {
     recentSnapshots,
     recentOrders,
     feeStats,
+    feePeriodStats,
     annualizedStats
   } = data;
   const chartData = recentSnapshots.map((snapshot) => ({
@@ -398,6 +464,7 @@ function renderDashboard(data) {
     header { padding-bottom: 8px; }
     h1 { margin: 0 0 6px; font-size: 28px; font-weight: 750; }
     h2 { margin: 0 0 14px; font-size: 18px; }
+    h3 { margin: 16px 0 8px; font-size: 14px; }
     .muted { color: var(--muted); }
     .grid { display: grid; gap: 14px; }
     .metrics { grid-template-columns: repeat(4, minmax(0, 1fr)); }
@@ -480,6 +547,7 @@ function renderDashboard(data) {
           fmt(row.amount, 8),
           row.count
         ])) : `<div class="muted">No fee rows found in logs yet. Exact fee reporting needs trade/order-detail data in snapshots or batches.</div>`}</div>
+        ${feePeriodTables(feePeriodStats)}
       </section>
     </div>
 
@@ -687,6 +755,27 @@ function renderDashboard(data) {
   </script>
 </body>
 </html>`;
+}
+
+function feePeriodTables(feePeriodStats) {
+  if (!feePeriodStats) return "";
+  return [
+    ["Daily Fees", feePeriodStats.daily],
+    ["Weekly Fees", feePeriodStats.weekly],
+    ["Monthly Fees", feePeriodStats.monthly],
+    ["Yearly Fees", feePeriodStats.yearly]
+  ].map(([title, rows]) => `
+        <h3>${escapeHtml(title)}</h3>
+        <div class="scroll">${feePeriodTable(rows)}</div>`).join("");
+}
+
+function feePeriodTable(rows) {
+  return table(["Period", "Currency", "Amount", "Rows"], (rows || []).slice(0, 20).map((row) => [
+    row.period,
+    row.currency,
+    fmt(row.amount, 8),
+    row.count
+  ]));
 }
 
 function renderBatchesCsv(data) {
