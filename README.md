@@ -147,9 +147,15 @@ MAX_OPEN_BATCHES=30
 
 # 0 means unlimited. 6 means at most 6 new base batches per UTC day.
 DAILY_BASE_BUY_LIMIT=6
+
+# 0 means disabled. 25 keeps at least 25 USD available by skipping BUY actions.
+MIN_QUOTE_BALANCE=25
+
+# 0 means disabled. 25 halts a run if price moves over 25% since the previous snapshot.
+MAX_SUSPICIOUS_PRICE_MOVE_PCT=25
 ```
 
-These limits only block new `BASE_BUY` actions. They do not block average-down buys into batches that already exist.
+`MAX_OPEN_BATCHES` and `DAILY_BASE_BUY_LIMIT` only block new `BASE_BUY` actions. `MIN_QUOTE_BALANCE` blocks any BUY action that would bring the quote balance below the configured reserve. It does not block sells.
 
 Older `STRATEGY=updown` still exists as a simple starting strategy:
 
@@ -268,7 +274,6 @@ Planned or possible improvements:
 
 - more reliable fill tracking through order detail/trades,
 - idempotency with `client_oid` and pending orders,
-- daily spend caps or stricter portfolio-level exposure limits,
 - better web UI for settings and stats,
 - maker-side experimental bot with intensive no-fee/maker trading,
 - strategy analysis and write-up.
