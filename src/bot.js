@@ -9,6 +9,13 @@ import { loadInstrumentRules } from "./instrumentRules.js";
 import { generateReport } from "./report.js";
 import { appendOrderEvent, isTerminalOrderStatus, latestOrderEventByClientOid, loadOrderLedger } from "./orderLedger.js";
 import {
+  notifyDailyReportIfNeeded,
+  notifyLowQuoteBalanceIfNeeded,
+  notifySale,
+  recordBotError,
+  recordBotSuccess
+} from "./notifications.js";
+import {
   applyDryRunBatchPlan,
   applyFilledBatchAction,
   buildBatchPlan,
@@ -49,11 +56,14 @@ async function runOnce() {
     price,
     portfolio
   };
+  await notifyLowQuoteBalanceIfNeeded(config, portfolio);
 
   if (config.strategy === "batches") {
     const result = await runBatchStrategy({ client, config, snapshot });
     appendSnapshot(config.logDir, result);
     generateReportSafely(config);
+    await notifyDailyReportIfNeeded(config, result);
+    await recordBotSuccess(config);
     console.log(JSON.stringify(result, null, 2));
     return;
   }
@@ -80,6 +90,8 @@ async function runOnce() {
 
   appendSnapshot(config.logDir, result);
   generateReportSafely(config);
+  await notifyDailyReportIfNeeded(config, result);
+  await recordBotSuccess(config);
   console.log(JSON.stringify(result, null, 2));
 }
 
@@ -278,6 +290,10 @@ async function runBatchStrategy({ client, config, snapshot }) {
       });
     }
 
+    if (action.kind === "TAKE_PROFIT") {
+      await notifySale(config, { action: actionWithClientOid, fill });
+    }
+
     if (action.kind === "DUST_SELL") {
       subtractDust(updatedDustBank, {
         quantity: fill.quantity,
@@ -355,8 +371,7 @@ function assertMarketDataSafe({ price, portfolio, previous, config }) {
       );
     }
   }
-}
-
+}\n
 function applyPlanSafetyGuards({ plan, portfolio, price, config }) {
   let remainingQuote = portfolio.quoteAvailable;
   return {
@@ -637,8 +652,9 @@ async function watch() {
 
   await runOnce();
   setInterval(() => {
-    runOnce().catch((error) => {
+    runOnce().catch(async (error) => {
       console.error(`[${new Date().toISOString()}] ${error.stack || error.message}`);
+      await notifyErrorSafely(error);
     });
   }, intervalMs);
 }
@@ -650,6 +666,8 @@ function checkConfig() {
     ...config,
     apiKey: config.apiKey ? "(set)" : "(missing)",
     apiSecret: config.apiSecret ? "(set)" : "(missing)",
+    telegramBotToken: config.telegramBotToken ? "(set)" : "(missing)",
+    telegramChatId: config.telegramChatId ? "(set)" : "(missing)",
     validation: validationProblems.length ? { ok: false, problems: validationProblems } : { ok: true, problems: [] }
   };
   console.log(JSON.stringify(safeConfig, null, 2));
@@ -667,5 +685,15 @@ try {
   }
 } catch (error) {
   console.error(error.stack || error.message);
+  await notifyErrorSafely(error);
   process.exitCode = 1;
+}
+
+async function notifyErrorSafely(error) {
+  try {
+    const config = loadConfig();
+    await recordBotError(config, error);
+  } catch (notificationError) {
+    console.error(`[${new Date().toISOString()}] notification failed: ${notificationError.message}`);
+  }
 }
