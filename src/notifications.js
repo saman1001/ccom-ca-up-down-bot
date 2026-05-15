@@ -1,5 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
 
 function notificationLogPath(logDir) {
   return path.join(logDir, "notifications.jsonl");
@@ -33,29 +37,43 @@ export async function notify(config, notification, options = {}) {
   state.lastSent[key] = now;
   writeState(config.logDir, state);
 
-  if (!config.telegramBotToken || !config.telegramChatId) {
-    return { logged: true, sent: false, skipped: "telegram_not_configured" };
+  const skipped = [];
+  let telegramSent = false;
+  let emailSent = false;
+
+  if (config.telegramBotToken && config.telegramChatId) {
+    try {
+      await sendTelegram(config, formatTelegramMessage(event));
+      telegramSent = true;
+    } catch (error) {
+      appendNotificationError(config, "TELEGRAM_ERROR", `${config.instrument} Telegram notification failed`, error, event);
+      skipped.push("telegram_error");
+    }
+  } else {
+    skipped.push("telegram_not_configured");
   }
 
-  try {
-    await sendTelegram(config, formatTelegramMessage(event));
-    return { logged: true, sent: true };
-  } catch (error) {
-    fs.appendFileSync(
-      notificationLogPath(config.logDir),
-      `${JSON.stringify({
-        at: new Date().toISOString(),
-        instrument: config.instrument,
-        type: "TELEGRAM_ERROR",
-        title: `${config.instrument} Telegram notification failed`,
-        message: trimMessage(error.message || String(error)),
-        data: {
-          notificationType: event.type
-        }
-      })}\n`
-    );
-    return { logged: true, sent: false, skipped: "telegram_error" };
+  if (options.email) {
+    if (config.emailReportTo) {
+      try {
+        await sendEmail(config, event);
+        emailSent = true;
+      } catch (error) {
+        appendNotificationError(config, "EMAIL_ERROR", `${config.instrument} email notification failed`, error, event);
+        skipped.push("email_error");
+      }
+    } else {
+      skipped.push("email_not_configured");
+    }
   }
+
+  return {
+    logged: true,
+    sent: telegramSent || emailSent,
+    telegramSent,
+    emailSent,
+    skipped: skipped.join(",")
+  };
 }
 
 export async function notifySale(config, { action, fill }) {
@@ -115,7 +133,7 @@ export async function notifyDailyReportIfNeeded(config, result) {
         openBatches: result.openBatchesAfter ?? result.openBatchesBefore ?? null
       }
     },
-    { key: `daily:${config.instrument}:${today}`, cooldownMinutes: 24 * 60 }
+    { key: `daily:${config.instrument}:${today}`, cooldownMinutes: 24 * 60, email: true }
   );
 }
 
@@ -203,8 +221,55 @@ async function sendTelegram(config, text) {
   }
 }
 
+async function sendEmail(config, event) {
+  const email = [
+    `To: ${config.emailReportTo}`,
+    `From: ${config.emailReportFrom}`,
+    `Subject: ${sanitizeHeader(event.title)}`,
+    "Content-Type: text/plain; charset=UTF-8",
+    "",
+    formatEmailMessage(event)
+  ].join("\n");
+
+  await execFileAsync(config.sendmailPath || "/usr/sbin/sendmail", ["-t"], {
+    input: email,
+    timeout: 15000
+  });
+}
+
+function appendNotificationError(config, type, title, error, event) {
+  fs.appendFileSync(
+    notificationLogPath(config.logDir),
+    `${JSON.stringify({
+      at: new Date().toISOString(),
+      instrument: config.instrument,
+      type,
+      title,
+      message: trimMessage(error.message || String(error)),
+      data: {
+        notificationType: event.type
+      }
+    })}\n`
+  );
+}
+
 function formatTelegramMessage(event) {
   return [`${event.title}`, "", event.message].filter(Boolean).join("\n");
+}
+
+function formatEmailMessage(event) {
+  return [
+    event.title,
+    "",
+    event.message,
+    "",
+    `Instrument: ${event.instrument}`,
+    `Generated: ${event.at}`
+  ].join("\n");
+}
+
+function sanitizeHeader(value) {
+  return String(value || "").replace(/[\r\n]+/g, " ").slice(0, 180);
 }
 
 function formatNumber(value) {
