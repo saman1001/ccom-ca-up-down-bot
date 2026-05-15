@@ -16,9 +16,14 @@ import {
 
 async function runOnce() {
   const config = loadConfig();
+  const configProblems = validateConfig(config);
+  if (configProblems.length) {
+    throw new Error(`Invalid bot configuration: ${configProblems.join("; ")}`);
+  }
   ensureLogDir(config.logDir);
 
   const client = new CryptoComClient(config);
+  const previous = readPreviousSnapshot(config.logDir);
 
   const ticker = await client.publicGet("public/get-tickers", {
     instrument_name: config.instrument
@@ -34,7 +39,8 @@ async function runOnce() {
     price
   });
 
-  const previous = readPreviousSnapshot(config.logDir);
+  assertMarketDataSafe({ price, portfolio, previous, config });
+
   const snapshot = {
     at: new Date().toISOString(),
     instrument: config.instrument,
@@ -51,7 +57,12 @@ async function runOnce() {
   }
 
   const signal = decide({ current: snapshot, previous, config });
-  const order = buildOrder({ signal, snapshot, config });
+  const order = applyOrderSafetyGuard({
+    order: buildOrder({ signal, snapshot, config }),
+    portfolio: snapshot.portfolio,
+    price: snapshot.price,
+    config
+  });
 
   const result = {
     ...snapshot,
@@ -82,6 +93,12 @@ async function runBatchStrategy({ client, config, snapshot }) {
     config,
     now: snapshot.at
   });
+  const guardedPlan = applyPlanSafetyGuards({
+    plan,
+    portfolio: snapshot.portfolio,
+    price: snapshot.price,
+    config
+  });
 
   const result = {
     ...snapshot,
@@ -89,7 +106,7 @@ async function runBatchStrategy({ client, config, snapshot }) {
     instrumentRules,
     openBatchesBefore: batches.filter((batch) => batch.status === "OPEN").length,
     dustBankBefore: dustBank.quantity || 0,
-    plan,
+    plan: guardedPlan,
     dryRun: config.dryRun,
     tradingEnabled: config.enableTrading
   };
@@ -97,7 +114,7 @@ async function runBatchStrategy({ client, config, snapshot }) {
   if (config.dryRun || !config.enableTrading) {
     result.simulatedBatches = applyDryRunBatchPlan({
       batches,
-      plan,
+      plan: guardedPlan,
       price: snapshot.price,
       now: snapshot.at
     });
@@ -109,7 +126,7 @@ async function runBatchStrategy({ client, config, snapshot }) {
   result.orderResults = [];
   let previousPortfolio = snapshot.portfolio;
 
-  for (const action of plan.actions) {
+  for (const action of guardedPlan.actions) {
     if (!action.order) {
       result.orderResults.push({
         action,
@@ -180,6 +197,107 @@ async function runBatchStrategy({ client, config, snapshot }) {
   return result;
 }
 
+function validateConfig(config) {
+  const problems = [];
+  const positive = [
+    ["CHECK_INTERVAL_MINUTES", config.checkIntervalMinutes],
+    ["BATCH_QUANTITY", config.batchQuantity],
+    ["MAX_BATCH_QUANTITY", config.maxBatchQuantity],
+    ["AVERAGE_DOWN_DROP_PCT", config.averageDownDropPct],
+    ["TAKE_PROFIT_RISE_PCT", config.takeProfitRisePct]
+  ];
+
+  if (!["production", "uat"].includes(process.env.CCOM_ENV || "production")) {
+    problems.push("CCOM_ENV must be production or uat");
+  }
+  if (!["updown", "batches"].includes(config.strategy)) {
+    problems.push("STRATEGY must be updown or batches");
+  }
+  if (!config.instrument || !config.instrument.includes("_")) problems.push("INSTRUMENT must look like BASE_QUOTE, for example CRO_USD");
+  if (!config.baseAsset) problems.push("BASE_ASSET is required");
+  if (!config.quoteAsset) problems.push("QUOTE_ASSET is required");
+  if (config.baseAsset === config.quoteAsset) problems.push("BASE_ASSET and QUOTE_ASSET must be different");
+  if (!config.dryRun && config.enableTrading && (!config.apiKey || !config.apiSecret)) {
+    problems.push("CCOM_API_KEY and CCOM_API_SECRET are required for live trading");
+  }
+
+  for (const [name, value] of positive) {
+    if (!Number.isFinite(value) || value <= 0) problems.push(`${name} must be greater than 0`);
+  }
+  if (config.maxBatchQuantity < config.batchQuantity) problems.push("MAX_BATCH_QUANTITY must be at least BATCH_QUANTITY");
+  if (!Number.isFinite(config.maxOpenBatches) || config.maxOpenBatches < 0) problems.push("MAX_OPEN_BATCHES must be 0 or greater");
+  if (!Number.isFinite(config.dailyBaseBuyLimit) || config.dailyBaseBuyLimit < 0) problems.push("DAILY_BASE_BUY_LIMIT must be 0 or greater");
+  if (!Number.isFinite(config.minQuoteBalance) || config.minQuoteBalance < 0) problems.push("MIN_QUOTE_BALANCE must be 0 or greater");
+  if (!Number.isFinite(config.maxSuspiciousPriceMovePct) || config.maxSuspiciousPriceMovePct < 0) {
+    problems.push("MAX_SUSPICIOUS_PRICE_MOVE_PCT must be 0 or greater");
+  }
+  if (!Number.isFinite(config.dustSellQuantity) || config.dustSellQuantity < 0) problems.push("DUST_SELL_QUANTITY must be 0 or greater");
+  return problems;
+}
+
+function assertMarketDataSafe({ price, portfolio, previous, config }) {
+  if (!Number.isFinite(price) || price <= 0) {
+    throw new Error(`Suspicious market data: invalid ${config.instrument} price ${price}.`);
+  }
+  for (const [name, value] of Object.entries(portfolio)) {
+    if (!Number.isFinite(value) || value < 0) {
+      throw new Error(`Suspicious balance data: ${name} is ${value}.`);
+    }
+  }
+
+  const previousPrice = Number(previous?.price || 0);
+  const limit = Number(config.maxSuspiciousPriceMovePct || 0);
+  if (previousPrice > 0 && limit > 0) {
+    const movePct = Math.abs((price - previousPrice) / previousPrice) * 100;
+    if (movePct > limit) {
+      throw new Error(
+        `Suspicious market data: ${config.instrument} price moved ${movePct.toFixed(2)}% since last snapshot, above ${limit}%.`
+      );
+    }
+  }
+}
+
+function applyPlanSafetyGuards({ plan, portfolio, price, config }) {
+  let remainingQuote = portfolio.quoteAvailable;
+  return {
+    ...plan,
+    actions: plan.actions.map((action) => {
+      if (action.order?.side !== "BUY") return action;
+      const estimatedSpend = estimateQuoteSpend(action.order, price);
+      const guardedOrder = applyOrderSafetyGuard({
+        order: action.order,
+        portfolio: { ...portfolio, quoteAvailable: remainingQuote },
+        price,
+        config
+      });
+      if (guardedOrder) {
+        remainingQuote -= estimatedSpend;
+        return action;
+      }
+      return {
+        kind: "SKIP_BUY_MIN_QUOTE_BALANCE",
+        batchId: action.batchId || null,
+        order: null,
+        originalKind: action.kind,
+        reason: `Buying would bring ${config.quoteAsset} balance below MIN_QUOTE_BALANCE=${config.minQuoteBalance}.`
+      };
+    })
+  };
+}
+
+function applyOrderSafetyGuard({ order, portfolio, price, config }) {
+  if (!order || order.side !== "BUY") return order;
+  const minQuoteBalance = Math.max(0, Number(config.minQuoteBalance || 0));
+  if (minQuoteBalance <= 0) return order;
+  const estimatedSpend = estimateQuoteSpend(order, price);
+  if (!Number.isFinite(estimatedSpend) || estimatedSpend <= 0) return null;
+  return portfolio.quoteAvailable - estimatedSpend >= minQuoteBalance ? order : null;
+}
+
+function estimateQuoteSpend(order, price) {
+  return Number(order.quantity || 0) * price;
+}
+
 function inferFillFromPortfolioDelta({ action, before, after, fallbackPrice }) {
   const baseDelta = after.baseTotal - before.baseTotal;
   const quoteDelta = after.quoteTotal - before.quoteTotal;
@@ -231,10 +349,12 @@ async function watch() {
 
 function checkConfig() {
   const config = loadConfig();
+  const validationProblems = validateConfig(config);
   const safeConfig = {
     ...config,
     apiKey: config.apiKey ? "(set)" : "(missing)",
-    apiSecret: config.apiSecret ? "(set)" : "(missing)"
+    apiSecret: config.apiSecret ? "(set)" : "(missing)",
+    validation: validationProblems.length ? { ok: false, problems: validationProblems } : { ok: true, problems: [] }
   };
   console.log(JSON.stringify(safeConfig, null, 2));
 }
