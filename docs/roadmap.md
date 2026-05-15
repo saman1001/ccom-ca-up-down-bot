@@ -37,7 +37,7 @@
 - [x] Nahradit balance-delta vypocet fillu presnym citanim `private/get-order-detail` alebo `private/get-trades`.
 - [x] Ukladat k davke `order_id`, priemernu fill cenu, gross quantity, net quantity, fee a fee currency.
 - [ ] Osetrit partial fill a oneskorene fillnutie orderu.
-- [ ] Pridat repair/reconcile prikaz, ktory spatne zosuladi `batches.json` s trade history.
+- [x] Pridat repair/reconcile prikaz, ktory spatne zosuladi `batches.json` s ulozenymi ordermi a `private/get-order-detail`.
 - [x] V reportoch oddelit poplatky, dust a cisty zisk podla skutocnych fillov z burzy.
 
 ### Bezpecnostne poistky
