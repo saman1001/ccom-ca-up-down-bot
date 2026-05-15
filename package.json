@@ -10,6 +10,7 @@
     "check": "node src/bot.js check",
     "report": "node src/report.js",
     "health": "node src/health.js",
+    "reconcile": "node src/reconcile.js",
     "backup:logs": "node src/backup-logs.js",
     "rotate:logs": "node src/rotate-logs.js"
   },
