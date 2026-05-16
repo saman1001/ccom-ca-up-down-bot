@@ -134,7 +134,7 @@ Batch behavior:
 - `DAILY_BASE_BUY_LIMIT` can stop new base buys after too many base buys in the current UTC day; `0` means unlimited,
 - `FORCE_BASE_BUY_WEEKLY_LIMIT` can force at least N base buys per UTC week; `0` means disabled,
 - every batch is tracked separately,
-- if price drops by `AVERAGE_DOWN_DROP_PCT` below a batch average, the bot can buy more into that batch,
+- if price drops by `AVERAGE_DOWN_DROP_PCT` below a batch average, the bot can buy `AVERAGE_DOWN_QUANTITY` more into that batch,
 - a batch can grow only up to `MAX_BATCH_QUANTITY`,
 - if price rises by `TAKE_PROFIT_RISE_PCT` above a batch average, the bot sells the whole batch,
 - quantity is rounded according to Crypto.com instrument rules,
@@ -146,6 +146,9 @@ Example safety limits:
 ```env
 # 0 means unlimited. 30 means no new base batch when 30 batches are open.
 MAX_OPEN_BATCHES=30
+
+# If omitted, dokup uses BATCH_QUANTITY. Set this higher for more aggressive average-down buys.
+AVERAGE_DOWN_QUANTITY=40
 
 # 0 means unlimited. 6 means at most 6 new base batches per UTC day.
 DAILY_BASE_BUY_LIMIT=6
@@ -160,7 +163,7 @@ MIN_QUOTE_BALANCE=25
 MAX_SUSPICIOUS_PRICE_MOVE_PCT=25
 ```
 
-`MAX_OPEN_BATCHES` and `DAILY_BASE_BUY_LIMIT` only block normal new `BASE_BUY` actions. `FORCE_BASE_BUY_WEEKLY_LIMIT` has priority over normal base-buy cooldown, daily limit, and max open batch limit. `MIN_QUOTE_BALANCE` and available quote balance still protect forced buys. `MIN_QUOTE_BALANCE` does not block sells.
+`BATCH_QUANTITY` controls new base batches. `AVERAGE_DOWN_QUANTITY` controls buys into existing batches after a price drop; when it is omitted, it defaults to `BATCH_QUANTITY`. `MAX_OPEN_BATCHES` and `DAILY_BASE_BUY_LIMIT` only block normal new `BASE_BUY` actions. `FORCE_BASE_BUY_WEEKLY_LIMIT` has priority over normal base-buy cooldown, daily limit, and max open batch limit. `MIN_QUOTE_BALANCE` and available quote balance still protect forced buys. `MIN_QUOTE_BALANCE` does not block sells.
 
 Older `STRATEGY=updown` still exists as a simple starting strategy:
 
