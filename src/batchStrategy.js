@@ -22,6 +22,7 @@ export function saveBatches(logDir, batches) {
 
 export function buildBatchPlan({ batches, dustBank, instrumentRules, price, config, now = new Date().toISOString() }) {
   const batchQuantity = config.batchQuantity;
+  const averageDownQuantity = config.averageDownQuantity;
   const averageDownMultiplier = 1 - Math.abs(config.averageDownDropPct) / 100;
   const takeProfitMultiplier = 1 + Math.abs(config.takeProfitRisePct) / 100;
   const openBatchCount = batches.filter((item) => item.status === "OPEN").length;
@@ -30,7 +31,7 @@ export function buildBatchPlan({ batches, dustBank, instrumentRules, price, conf
   for (const batch of batches.filter((item) => item.status === "OPEN")) {
     if (price <= batch.averagePrice * averageDownMultiplier) {
       const remainingCapacity = Math.max(0, config.maxBatchQuantity - batch.quantity);
-      const quantityToBuy = Math.min(batchQuantity, remainingCapacity);
+      const quantityToBuy = Math.min(averageDownQuantity, remainingCapacity);
       if (quantityToBuy <= 0) {
         actions.push({
           kind: "HOLD_MAX_SIZE",
