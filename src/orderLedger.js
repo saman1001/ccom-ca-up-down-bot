@@ -29,5 +29,35 @@ export function latestOrderEventByClientOid(events, clientOid) {
 }
 
 export function isTerminalOrderStatus(status) {
-  return ["FILLED", "SKIPPED", "RECONCILED"].includes(status || "");
+  return [
+    "FILLED",
+    "FILLED_ALREADY_APPLIED",
+    "SKIPPED",
+    "RECONCILED",
+    "CANCELED",
+    "CANCELLED",
+    "REJECTED",
+    "EXPIRED",
+    "FAILED"
+  ].includes(status || "");
+}
+
+export function latestActiveOrderEventForAction(events, action) {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index];
+    if (!event || isTerminalOrderStatus(event.status)) continue;
+    if (!isSameAction(event.action, action)) continue;
+    return event;
+  }
+  return null;
+}
+
+function isSameAction(left, right) {
+  if (!left || !right) return false;
+  return (
+    left.kind === right.kind &&
+    (left.batchId || null) === (right.batchId || null) &&
+    left.order?.instrument_name === right.order?.instrument_name &&
+    left.order?.side === right.order?.side
+  );
 }
