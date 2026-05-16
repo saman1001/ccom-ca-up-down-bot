@@ -51,7 +51,7 @@
 
 ## Davkova strategia
 
-- [ ] Pridat moznost vypnut pravidelny zakladny nakup a obchodovat iba podla signalov.
+- [ ] Pridat novy vstupny signal pre otvorenie novej davky podla poklesu ceny alebo volatility.
 - [ ] Pridat moznost nastavit inu velkost dokupu nez zakladnej davky.
 - [ ] Pridat strategiu, ktora vie menit percenta podla volatility trhu.
 - [ ] Pridat backtest hladania vhodnych percent, intervalu a velkosti davky.
