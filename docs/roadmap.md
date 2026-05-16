@@ -53,7 +53,6 @@
 
 - [ ] Pridat moznost vypnut pravidelny zakladny nakup a obchodovat iba podla signalov.
 - [ ] Pridat moznost nastavit inu velkost dokupu nez zakladnej davky.
-- [ ] Pridat rezim, kde sa nova davka nekupi, ak uz existuje cerstva davka z poslednych X hodin.
 - [ ] Pridat strategiu, ktora vie menit percenta podla volatility trhu.
 - [ ] Pridat backtest hladania vhodnych percent, intervalu a velkosti davky.
 
@@ -126,7 +125,7 @@
 - [ ] Pauza v obchodovani pri prudkom prepade trhu.
 - [ ] Pauza v obchodovani pri prudkom raste.
 - [ ] Rebalancing medzi quote menou a base assetom.
-- [ ] Optimalizacia strategie nad historickymi datami pre vyskum a clanok.
+- [ ] Optimalizacia strategie nad historickimi datami pre vyskum a clanok.
 
 ## Webove rozhranie
 
