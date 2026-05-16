@@ -168,6 +168,44 @@ Older `STRATEGY=updown` still exists as a simple starting strategy:
 - `SELL` when price rises by `SELL_RISE_PCT`,
 - otherwise `HOLD`.
 
+## Maker Order Mode
+
+The default order mode is still market orders:
+
+```env
+ORDER_MODE=market
+```
+
+Experimental maker mode can be enabled per env file:
+
+```env
+ORDER_MODE=maker
+MAKER_BOOK_LEVEL=3
+MAKER_POST_ONLY_MODE=SMART_POST_ONLY
+MAKER_MAX_SPREAD_PCT=0
+```
+
+In maker mode, the batch strategy still decides when to buy, average down, or take profit. Before sending the order, the bot reads the public order book and changes the order into a limit maker order:
+
+- BUY uses the Nth bid level,
+- SELL uses the Nth ask level,
+- `MAKER_BOOK_LEVEL=3` means the third visible price level in the order book,
+- `SMART_POST_ONLY` asks Crypto.com to keep the order maker-side when possible,
+- `MAKER_MAX_SPREAD_PCT=0` disables the spread guard; a positive value skips maker orders when the bid/ask spread is too wide.
+
+Being on the third price level does not guarantee third place in the queue. Queue position at the same price depends on who placed an order earlier. It only means the bot chooses the third price level from the order book.
+
+Start maker mode in dry-run first:
+
+```env
+DRY_RUN=true
+ENABLE_TRADING=false
+ORDER_MODE=maker
+MAKER_BOOK_LEVEL=3
+```
+
+Maker orders can remain open or partially fill. The bot records them in `logs/orders.jsonl` and checks active maker orders on later runs before creating another matching order.
+
 ## Multiple Pairs
 
 One bot process trades one pair. For multiple pairs, run multiple processes or systemd services.
@@ -291,6 +329,7 @@ If you run a second pair, use a second service with its own env file and log dir
 
 ```text
 src/bot.js              Main bot command: check, once, watch
+src/makerOrders.js      Maker limit order helper using public order book levels
 src/priceHistory.js     Hourly price history logger for future backtests
 src/report.js           HTML and CSV report generator
 src/health.js           Basic health check for env/log freshness
