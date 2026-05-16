@@ -48,11 +48,11 @@
 - [x] Pridat minimalny quote zostatok, pod ktorym bot prestane nakupovat (`MIN_QUOTE_BALANCE`).
 - [x] Pridat kontrolu, ze bot neobchoduje, ak burza vracia podozrive alebo neuplne data.
 - [x] Pridat validaciu nastaveni pri starte: par, minimalny order, velkost davky, trading/dry-run a log adresar.
+- [x] Pridat moznost nastavit inu velkost dokupu nez zakladnej davky (`AVERAGE_DOWN_QUANTITY`).
 
 ## Davkova strategia
 
 - [ ] Pridat novy vstupny signal pre otvorenie novej davky podla poklesu ceny alebo volatility.
-- [ ] Pridat moznost nastavit inu velkost dokupu nez zakladnej davky.
 - [ ] Pridat strategiu, ktora vie menit percenta podla volatility trhu.
 - [ ] Pridat backtest hladania vhodnych percent, intervalu a velkosti davky.
 
@@ -125,7 +125,7 @@
 - [ ] Pauza v obchodovani pri prudkom prepade trhu.
 - [ ] Pauza v obchodovani pri prudkom raste.
 - [ ] Rebalancing medzi quote menou a base assetom.
-- [ ] Optimalizacia strategie nad historickimi datami pre vyskum a clanok.
+- [ ] Optimalizacia strategie nad historickymi datami pre vyskum a clanok.
 
 ## Webove rozhranie
 
