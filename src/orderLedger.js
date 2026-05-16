@@ -47,9 +47,25 @@ export function latestActiveOrderEventForAction(events, action) {
     const event = events[index];
     if (!event || isTerminalOrderStatus(event.status)) continue;
     if (!isSameAction(event.action, action)) continue;
-    return event;
+    return {
+      ...event,
+      firstActiveAt: firstActiveOrderTime(events, event, action)
+    };
   }
   return null;
+}
+
+function firstActiveOrderTime(events, latestEvent, action) {
+  let firstAt = latestEvent.at || "";
+  for (const event of events) {
+    if (!event || isTerminalOrderStatus(event.status)) continue;
+    if (!isSameAction(event.action, action)) continue;
+    if (latestEvent.clientOid && event.clientOid !== latestEvent.clientOid) continue;
+    if (latestEvent.orderId && event.orderId && event.orderId !== latestEvent.orderId) continue;
+    firstAt = event.at || firstAt;
+    break;
+  }
+  return firstAt;
 }
 
 function isSameAction(left, right) {
