@@ -51,7 +51,6 @@
 
 ## Davkova strategia
 
-- [ ] Umoznit vlastne percenta pre jednotlive davky.
 - [ ] Pridat moznost vypnut pravidelny zakladny nakup a obchodovat iba podla signalov.
 - [ ] Pridat moznost nastavit inu velkost dokupu nez zakladnej davky.
 - [ ] Pridat rezim, kde sa nova davka nekupi, ak uz existuje cerstva davka z poslednych X hodin.
