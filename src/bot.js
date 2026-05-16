@@ -350,6 +350,9 @@ function validateConfig(config) {
   if (config.maxBatchQuantity < config.batchQuantity) problems.push("MAX_BATCH_QUANTITY must be at least BATCH_QUANTITY");
   if (!Number.isFinite(config.maxOpenBatches) || config.maxOpenBatches < 0) problems.push("MAX_OPEN_BATCHES must be 0 or greater");
   if (!Number.isFinite(config.dailyBaseBuyLimit) || config.dailyBaseBuyLimit < 0) problems.push("DAILY_BASE_BUY_LIMIT must be 0 or greater");
+  if (!Number.isFinite(config.forceBaseBuyWeeklyLimit) || config.forceBaseBuyWeeklyLimit < 0) {
+    problems.push("FORCE_BASE_BUY_WEEKLY_LIMIT must be 0 or greater");
+  }
   if (!Number.isFinite(config.minQuoteBalance) || config.minQuoteBalance < 0) problems.push("MIN_QUOTE_BALANCE must be 0 or greater");
   if (!Number.isFinite(config.maxSuspiciousPriceMovePct) || config.maxSuspiciousPriceMovePct < 0) {
     problems.push("MAX_SUSPICIOUS_PRICE_MOVE_PCT must be 0 or greater");
@@ -398,11 +401,16 @@ function applyPlanSafetyGuards({ plan, portfolio, price, config }) {
         return action;
       }
       return {
-        kind: "SKIP_BUY_MIN_QUOTE_BALANCE",
+        kind: "SKIP_BUY_SAFETY_GUARD",
         batchId: action.batchId || null,
         order: null,
         originalKind: action.kind,
-        reason: `Buying would bring ${config.quoteAsset} balance below MIN_QUOTE_BALANCE=${config.minQuoteBalance}.`
+        reason: buySafetyGuardReason({
+          order: action.order,
+          portfolio: { ...portfolio, quoteAvailable: remainingQuote },
+          price,
+          config
+        })
       };
     })
   };
@@ -411,14 +419,25 @@ function applyPlanSafetyGuards({ plan, portfolio, price, config }) {
 function applyOrderSafetyGuard({ order, portfolio, price, config }) {
   if (!order || order.side !== "BUY") return order;
   const minQuoteBalance = Math.max(0, Number(config.minQuoteBalance || 0));
-  if (minQuoteBalance <= 0) return order;
   const estimatedSpend = estimateQuoteSpend(order, price);
   if (!Number.isFinite(estimatedSpend) || estimatedSpend <= 0) return null;
+  if (portfolio.quoteAvailable < estimatedSpend) return null;
   return portfolio.quoteAvailable - estimatedSpend >= minQuoteBalance ? order : null;
 }
 
 function estimateQuoteSpend(order, price) {
   return Number(order.quantity || 0) * price;
+}
+
+function buySafetyGuardReason({ order, portfolio, price, config }) {
+  const estimatedSpend = estimateQuoteSpend(order, price);
+  if (!Number.isFinite(estimatedSpend) || estimatedSpend <= 0) {
+    return "Buying was skipped because estimated spend is invalid.";
+  }
+  if (portfolio.quoteAvailable < estimatedSpend) {
+    return `Buying would need about ${estimatedSpend} ${config.quoteAsset}, but only ${portfolio.quoteAvailable} is available.`;
+  }
+  return `Buying would bring ${config.quoteAsset} balance below MIN_QUOTE_BALANCE=${config.minQuoteBalance}.`;
 }
 
 async function loadOrderDetailSafely({ client, orderResult, clientOid = "" }) {
