@@ -254,6 +254,7 @@ async function runBatchStrategy({ client, config, snapshot }) {
       existingOrder,
       recoveredFromLedger,
       action: actionWithClientOid,
+      orderDetail,
       config,
       now: snapshot.at
     });
@@ -393,6 +394,7 @@ function validateConfig(config) {
   const positive = [
     ["CHECK_INTERVAL_MINUTES", config.checkIntervalMinutes],
     ["BATCH_QUANTITY", config.batchQuantity],
+    ["AVERAGE_DOWN_QUANTITY", config.averageDownQuantity],
     ["MAX_BATCH_QUANTITY", config.maxBatchQuantity],
     ["AVERAGE_DOWN_DROP_PCT", config.averageDownDropPct],
     ["TAKE_PROFIT_RISE_PCT", config.takeProfitRisePct]
@@ -786,8 +788,12 @@ function hasFilledQuantity(fill) {
   return Number.isFinite(fill?.quantity) && fill.quantity > 0 && Number.isFinite(fill?.price) && fill.price > 0;
 }
 
-function makerFallbackDecision({ existingOrder, recoveredFromLedger, action, config, now }) {
+function makerFallbackDecision({ existingOrder, recoveredFromLedger, action, orderDetail, config, now }) {
   if (!recoveredFromLedger || config.orderMode !== "maker" || action.order?.type !== "LIMIT") {
+    return { shouldCancel: false, reason: "" };
+  }
+  const exchangeStatus = String(orderDetailStatus(orderDetail) || "").toUpperCase();
+  if (isExchangeFilledStatus(exchangeStatus) || isExchangeTerminalNoFillStatus(exchangeStatus)) {
     return { shouldCancel: false, reason: "" };
   }
 
@@ -816,6 +822,11 @@ function makerFallbackDecision({ existingOrder, recoveredFromLedger, action, con
   }
 
   return { shouldCancel: false, reason: "" };
+}
+
+function orderDetailStatus(orderDetail) {
+  const row = orderDetail?.result?.order_info || orderDetail?.result?.data || orderDetail?.result;
+  return row?.status || "";
 }
 
 function latestAppliedFillByClientOid(events, clientOid) {
@@ -929,7 +940,7 @@ function generateReportSafely(config) {
 
 async function watch() {
   const config = loadConfig();
-  const intervalMs = Math.max(1, config.checkIntervalMinutes) * 60 * 1000;
+  const intervalMs = Math.max(1, Number(config.checkIntervalMinutes || 60)) * 60 * 1000;
 
   await runOnce();
   setInterval(() => {
