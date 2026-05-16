@@ -1,4 +1,8 @@
 .env
+.env.*
+!.env.example
 logs/
+reports/
+backups/
 node_modules/
 *.log
