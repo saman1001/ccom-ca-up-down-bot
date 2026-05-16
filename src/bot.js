@@ -6,8 +6,15 @@ import { buildOrder, decide } from "./strategy.js";
 import { appendSnapshot, ensureLogDir, readPreviousSnapshot } from "./storage.js";
 import { addDust, loadDustBank, saveDustBank, subtractDust } from "./dustBank.js";
 import { loadInstrumentRules } from "./instrumentRules.js";
+import { applyMakerPricesToPlan } from "./makerOrders.js";
 import { generateReport } from "./report.js";
-import { appendOrderEvent, isTerminalOrderStatus, latestOrderEventByClientOid, loadOrderLedger } from "./orderLedger.js";
+import {
+  appendOrderEvent,
+  isTerminalOrderStatus,
+  latestActiveOrderEventForAction,
+  latestOrderEventByClientOid,
+  loadOrderLedger
+} from "./orderLedger.js";
 import { appendPriceHistory } from "./priceHistory.js";
 import {
   notifyDailyReportIfNeeded,
@@ -106,13 +113,19 @@ async function runBatchStrategy({ client, config, snapshot }) {
   const batches = loadBatches(config.logDir);
   const dustBank = loadDustBank(config.logDir);
   const instrumentRules = await loadInstrumentRules(client, config.instrument);
-  const plan = buildBatchPlan({
+  const basePlan = buildBatchPlan({
     batches,
     dustBank,
     instrumentRules,
     price: snapshot.price,
     config,
     now: snapshot.at
+  });
+  const plan = await applyMakerPricesToPlan({
+    client,
+    plan: basePlan,
+    config,
+    instrumentRules
   });
   const guardedPlan = applyPlanSafetyGuards({
     plan,
@@ -157,20 +170,33 @@ async function runBatchStrategy({ client, config, snapshot }) {
       continue;
     }
 
-    const order = {
+    let order = {
       ...action.order,
       client_oid: buildClientOid({ action, config, now: snapshot.at })
     };
-    const actionWithClientOid = {
+    let actionWithClientOid = {
       ...action,
       order
     };
-    const existingOrder = latestOrderEventByClientOid(orderEvents, order.client_oid);
+    const activeMakerOrder = config.orderMode === "maker"
+      ? latestActiveOrderEventForAction(orderEvents, actionWithClientOid)
+      : null;
+    const existingOrder = activeMakerOrder || latestOrderEventByClientOid(orderEvents, order.client_oid);
     let orderResult = null;
     let recoveredFromLedger = false;
 
     if (existingOrder && !isTerminalOrderStatus(existingOrder.status)) {
       recoveredFromLedger = true;
+      if (existingOrder.clientOid && existingOrder.clientOid !== order.client_oid) {
+        order = {
+          ...order,
+          client_oid: existingOrder.clientOid
+        };
+        actionWithClientOid = {
+          ...actionWithClientOid,
+          order
+        };
+      }
     }
 
     if (!recoveredFromLedger) {
@@ -238,27 +264,36 @@ async function runBatchStrategy({ client, config, snapshot }) {
       after: nextPortfolio,
       fallbackPrice: snapshot.price
     });
-    const fill = inferFillFromOrderDetail({
+    const cumulativeFill = inferFillFromOrderDetail({
       action: actionWithClientOid,
       orderResult,
       orderDetail,
       fallbackFill,
       config
     });
+    const previousAppliedFill = latestAppliedFillByClientOid(orderEvents, order.client_oid);
+    const fill = incrementalFillFromCumulative({
+      cumulativeFill,
+      previousAppliedFill,
+      action: actionWithClientOid,
+      config
+    });
+    const ledgerStatus = orderLedgerStatusFromFill({ fill, cumulativeFill });
 
     appendOrderEvent(config.logDir, {
-      status: hasFilledQuantity(fill) ? "FILLED" : "NO_FILL",
+      status: ledgerStatus,
       instrument: config.instrument,
       clientOid: order.client_oid,
-      orderId: fill.orderId || getOrderId(orderResult),
+      orderId: cumulativeFill.orderId || fill.orderId || getOrderId(orderResult),
       action: sanitizeLedgerAction(actionWithClientOid),
       orderDetail: sanitizeOrderDetail(orderDetail),
       fill: sanitizeLedgerFill(fill)
     });
     orderEvents.push({
-      status: hasFilledQuantity(fill) ? "FILLED" : "NO_FILL",
+      status: ledgerStatus,
       clientOid: order.client_oid,
-      orderId: fill.orderId || getOrderId(orderResult)
+      orderId: cumulativeFill.orderId || fill.orderId || getOrderId(orderResult),
+      fill: sanitizeLedgerFill(fill)
     });
 
     result.orderResults.push({
@@ -269,6 +304,7 @@ async function runBatchStrategy({ client, config, snapshot }) {
       orderResult,
       orderDetail: sanitizeOrderDetail(orderDetail),
       fill,
+      cumulativeFill,
       portfolioAfterOrder: nextPortfolio
     });
 
@@ -335,6 +371,18 @@ function validateConfig(config) {
   }
   if (!["updown", "batches"].includes(config.strategy)) {
     problems.push("STRATEGY must be updown or batches");
+  }
+  if (!["market", "maker"].includes(config.orderMode)) {
+    problems.push("ORDER_MODE must be market or maker");
+  }
+  if (!Number.isFinite(config.makerBookLevel) || config.makerBookLevel < 1) {
+    problems.push("MAKER_BOOK_LEVEL must be 1 or greater");
+  }
+  if (!Number.isFinite(config.makerMaxSpreadPct) || config.makerMaxSpreadPct < 0) {
+    problems.push("MAKER_MAX_SPREAD_PCT must be 0 or greater");
+  }
+  if (!["POST_ONLY", "SMART_POST_ONLY"].includes(config.makerPostOnlyMode)) {
+    problems.push("MAKER_POST_ONLY_MODE must be POST_ONLY or SMART_POST_ONLY");
   }
   if (!config.instrument || !config.instrument.includes("_")) problems.push("INSTRUMENT must look like BASE_QUOTE, for example CRO_USD");
   if (!config.baseAsset) problems.push("BASE_ASSET is required");
@@ -426,7 +474,7 @@ function applyOrderSafetyGuard({ order, portfolio, price, config }) {
 }
 
 function estimateQuoteSpend(order, price) {
-  return Number(order.quantity || 0) * price;
+  return Number(order.quantity || 0) * Number(order.price || price);
 }
 
 function buySafetyGuardReason({ order, portfolio, price, config }) {
@@ -601,8 +649,11 @@ function sanitizeLedgerAction(action) {
           instrument_name: action.order.instrument_name,
           side: action.order.side,
           type: action.order.type,
+          price: action.order.price,
           quantity: action.order.quantity,
-          client_oid: action.order.client_oid
+          client_oid: action.order.client_oid,
+          exec_inst: action.order.exec_inst,
+          time_in_force: action.order.time_in_force
         }
       : null,
     reason: action.reason || ""
@@ -622,7 +673,12 @@ function sanitizeLedgerFill(fill) {
     averageExecutionPrice: fill.averageExecutionPrice || 0,
     quoteValue: fill.quoteValue || 0,
     fee: fill.fee || null,
-    pending: Boolean(fill.pending)
+    pending: Boolean(fill.pending),
+    cumulativeQuantity: fill.cumulativeQuantity,
+    cumulativeGrossQuantity: fill.cumulativeGrossQuantity,
+    cumulativeNetQuantity: fill.cumulativeNetQuantity,
+    cumulativeQuoteValue: fill.cumulativeQuoteValue,
+    cumulativeFee: fill.cumulativeFee || null
   };
 }
 
@@ -653,6 +709,97 @@ function inferFillFromPortfolioDelta({ action, before, after, fallbackPrice }) {
 
 function hasFilledQuantity(fill) {
   return Number.isFinite(fill?.quantity) && fill.quantity > 0 && Number.isFinite(fill?.price) && fill.price > 0;
+}
+
+function latestAppliedFillByClientOid(events, clientOid) {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index];
+    if (event?.clientOid !== clientOid || !event.fill) continue;
+    const cumulativeQuantity = Number(event.fill.cumulativeQuantity ?? event.fill.quantity ?? 0);
+    const cumulativeGrossQuantity = Number(event.fill.cumulativeGrossQuantity ?? event.fill.grossQuantity ?? 0);
+    if (cumulativeQuantity > 0 || cumulativeGrossQuantity > 0) return event.fill;
+  }
+  return null;
+}
+
+function incrementalFillFromCumulative({ cumulativeFill, previousAppliedFill, action, config }) {
+  if (!hasCumulativeFill(cumulativeFill)) return cumulativeFill;
+
+  const previous = previousAppliedFill || {};
+  const previousQuantity = Number(previous.cumulativeQuantity ?? previous.quantity ?? 0);
+  const previousGrossQuantity = Number(previous.cumulativeGrossQuantity ?? previous.grossQuantity ?? 0);
+  const previousNetQuantity = Number(previous.cumulativeNetQuantity ?? previous.netQuantity ?? previous.quantity ?? 0);
+  const previousQuoteValue = Number(previous.cumulativeQuoteValue ?? previous.quoteValue ?? 0);
+  const previousFeeAmount = Number(previous.cumulativeFee?.amount ?? previous.fee?.amount ?? 0);
+
+  const currentQuantity = Number(cumulativeFill.quantity || 0);
+  const currentGrossQuantity = Number(cumulativeFill.grossQuantity || 0);
+  const currentNetQuantity = Number(cumulativeFill.netQuantity ?? cumulativeFill.quantity ?? 0);
+  const currentQuoteValue = Number(cumulativeFill.quoteValue || 0);
+  const currentFeeAmount = Number(cumulativeFill.fee?.amount || 0);
+  const feeCurrency = cumulativeFill.fee?.currency || previous.cumulativeFee?.currency || previous.fee?.currency || "";
+
+  const deltaQuantity = cleanDelta(currentQuantity - previousQuantity);
+  const deltaGrossQuantity = cleanDelta(currentGrossQuantity - previousGrossQuantity);
+  const deltaNetQuantity = cleanDelta(currentNetQuantity - previousNetQuantity);
+  const deltaQuoteValue = cleanDelta(currentQuoteValue - previousQuoteValue);
+  const deltaFeeAmount = cleanDelta(currentFeeAmount - previousFeeAmount);
+  const side = action.order?.side || "";
+
+  const quantity = side === "BUY" ? deltaQuantity : deltaGrossQuantity || deltaQuantity;
+  const grossQuantity = deltaGrossQuantity || quantity;
+  const netQuantity = side === "BUY" ? deltaNetQuantity || quantity : grossQuantity;
+  const totalQuote = side === "BUY" && feeCurrency === config.quoteAsset ? deltaQuoteValue + deltaFeeAmount : deltaQuoteValue;
+  const price = quantity > 0 ? totalQuote / quantity : 0;
+
+  return {
+    ...cumulativeFill,
+    quantity,
+    grossQuantity,
+    netQuantity,
+    price: Number.isFinite(price) && price > 0 ? price : 0,
+    quoteValue: deltaQuoteValue,
+    fee: deltaFeeAmount > 0 ? { amount: deltaFeeAmount, currency: feeCurrency } : null,
+    baseDelta: cleanSignedDelta((cumulativeFill.baseDelta || 0) - Number(previous.baseDelta || 0)),
+    quoteDelta: cleanSignedDelta((cumulativeFill.quoteDelta || 0) - Number(previous.quoteDelta || 0)),
+    cumulativeQuantity: currentQuantity,
+    cumulativeGrossQuantity: currentGrossQuantity,
+    cumulativeNetQuantity: currentNetQuantity,
+    cumulativeQuoteValue: currentQuoteValue,
+    cumulativeFee: cumulativeFill.fee || null
+  };
+}
+
+function hasCumulativeFill(fill) {
+  return Number(fill?.quantity || 0) > 0 || Number(fill?.grossQuantity || 0) > 0;
+}
+
+function orderLedgerStatusFromFill({ fill, cumulativeFill }) {
+  const exchangeStatus = String(cumulativeFill?.status || "").toUpperCase();
+  if (isExchangeTerminalNoFillStatus(exchangeStatus) && !hasFilledQuantity(fill)) return exchangeStatus;
+  if (isExchangeFilledStatus(exchangeStatus)) {
+    return hasFilledQuantity(fill) ? "FILLED" : "FILLED_ALREADY_APPLIED";
+  }
+  if (hasFilledQuantity(fill)) return "PARTIAL_FILL";
+  return "NO_FILL";
+}
+
+function isExchangeFilledStatus(status) {
+  return ["FILLED", "FULLY_FILLED"].includes(status);
+}
+
+function isExchangeTerminalNoFillStatus(status) {
+  return ["CANCELED", "CANCELLED", "REJECTED", "EXPIRED", "FAILED"].includes(status);
+}
+
+function cleanDelta(value) {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Number(Number(value).toFixed(12)));
+}
+
+function cleanSignedDelta(value) {
+  if (!Number.isFinite(value)) return 0;
+  return Number(Number(value).toFixed(12));
 }
 
 function isFullActionFill({ action, fill }) {
