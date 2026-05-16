@@ -71,6 +71,8 @@ export function loadConfig() {
     makerBookLevel: numberEnv("MAKER_BOOK_LEVEL", 3),
     makerMaxSpreadPct: numberEnv("MAKER_MAX_SPREAD_PCT", 0),
     makerPostOnlyMode: process.env.MAKER_POST_ONLY_MODE || "SMART_POST_ONLY",
+    makerOrderTimeoutMinutes: numberEnv("MAKER_ORDER_TIMEOUT_MINUTES", 0),
+    makerRepriceAfterMinutes: numberEnv("MAKER_REPRICE_AFTER_MINUTES", 0),
     checkIntervalMinutes: numberEnv("CHECK_INTERVAL_MINUTES", 60),
     telegramBotToken: process.env.TELEGRAM_BOT_TOKEN || "",
     telegramChatId: process.env.TELEGRAM_CHAT_ID || "",
