@@ -59,6 +59,7 @@ export function loadConfig() {
     maxBatchQuantity: numberEnv("MAX_BATCH_QUANTITY", 500),
     maxOpenBatches: numberEnv("MAX_OPEN_BATCHES", 0),
     dailyBaseBuyLimit: numberEnv("DAILY_BASE_BUY_LIMIT", 0),
+    forceBaseBuyWeeklyLimit: numberEnv("FORCE_BASE_BUY_WEEKLY_LIMIT", 0),
     minQuoteBalance: numberEnv("MIN_QUOTE_BALANCE", 0),
     maxSuspiciousPriceMovePct: numberEnv("MAX_SUSPICIOUS_PRICE_MOVE_PCT", 25),
     averageDownDropPct: numberEnv("AVERAGE_DOWN_DROP_PCT", 10),
