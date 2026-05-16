@@ -64,10 +64,10 @@
 - [x] Formatovat a zaokruhlovat `quantity` podla pravidiel instrumentu, aby `CRO_USD` neposielal desatinne mnozstva ako `19.9`.
 - [x] Pri zaokruhlovani predaja evidovat zostatok ako dust, aby sa neskreslil skutocny zisk davky.
 - [x] Pridat kontrolu minimalnej velkosti orderu podla instrumentu.
-- [ ] Logovat nacitane pravidla instrumentu pri starte bota alebo pri `check` prikaze.
-- [ ] Pridat limit order rezim namiesto market orderov.
-- [ ] Pridat fallback: ak sa limit order nevyplni do X minut, zrusit alebo upravit cenu.
-- [ ] Lepsie pracovat s ciastocnymi fillmi priamo cez order/trade history.
+- [x] Logovat nacitane pravidla instrumentu pri starte bota alebo pri `check` prikaze.
+- [x] Pridat experimentalny maker limit order rezim namiesto market orderov cez `ORDER_MODE=maker`.
+- [x] Pridat fallback: ak sa limit order nevyplni do X minut, zrusit alebo upravit cenu.
+- [x] Lepsie pracovat s ciastocnymi fillmi priamo cez order detail a order ledger.
 
 ## Reporty a statistiky
 
