@@ -56,6 +56,7 @@ export function loadConfig() {
     sellRisePct: numberEnv("SELL_RISE_PCT", 4),
     tradeNotional: numberEnv("TRADE_NOTIONAL", 25),
     batchQuantity: numberEnv("BATCH_QUANTITY", 20),
+    averageDownQuantity: numberEnv("AVERAGE_DOWN_QUANTITY", numberEnv("BATCH_QUANTITY", 20)),
     maxBatchQuantity: numberEnv("MAX_BATCH_QUANTITY", 500),
     maxOpenBatches: numberEnv("MAX_OPEN_BATCHES", 0),
     dailyBaseBuyLimit: numberEnv("DAILY_BASE_BUY_LIMIT", 0),
