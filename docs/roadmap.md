@@ -111,6 +111,13 @@
 - [ ] Pridat simulator scenarov: prudky pad, pomaly rast, sideways trh.
 - [ ] Pridat porovnavanie strategii a hladanie vhodnych percent pre clanok.
 
+## Dane a uctovnictvo
+
+- [ ] Pridat export operacii pre danove a uctovne spracovanie podla slovenskych pravidiel.
+- [ ] Evidovat nakupy, predaje, poplatky, dust, realizovany zisk/stratu a drzbovu dobu v strukture vhodnej pre uctovnika.
+- [ ] Pridat rocny danovy report so suhrnmi za kazdy par a za cele portfolio.
+- [ ] Pridat upozornenie, ze vystupy su podklad pre kontrolu uctovnikom/danovym poradcom, nie pravne ani danove poradenstvo.
+
 ## Buduce strategie
 
 - [x] Podpora viacerych parov ako samostatne procesy/sluzby, napr. `BTC_USD`, `ETH_USD`, `CRO_USD`.
