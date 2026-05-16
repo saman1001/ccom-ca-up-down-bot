@@ -305,6 +305,30 @@ Reports include open batches, closed batches, recent orders, price chart, dust b
 
 Generated reports can contain private balances and trading history. Do not commit them to the public repository.
 
+## Slovak Tax And Accounting Export
+
+Generate tax/accounting CSV files for the active env/log directory:
+
+```bash
+node src/taxExport.js
+node src/taxExport.js --year=2026
+```
+
+For multiple pairs:
+
+```bash
+ENV_FILE=.env.cro-usd node src/taxExport.js --year=2026
+ENV_FILE=.env.btc-usd node src/taxExport.js --year=2026
+```
+
+Generated files go to `reports/`:
+
+- `*-tax-events.csv` - taxable disposal rows from batch sells and dust sells,
+- `*-tax-summary.csv` - yearly summary by instrument,
+- `*-accounting-ledger.csv` - buy, sell, dust-in and dust-sell ledger rows.
+
+The export is an accounting aid, not legal or tax advice. It uses the bot logs and calculates proceeds, cost basis, realized P/L and an indicative tax base. Review it with an accountant or tax advisor before filing.
+
 ## VPS Operations
 
 Useful operational commands:
@@ -313,6 +337,7 @@ Useful operational commands:
 node src/health.js .env.cro-usd .env.btc-usd
 node src/backup-logs.js
 node src/rotate-logs.js
+node src/taxExport.js --year=2026
 ```
 
 Available npm scripts:
@@ -341,6 +366,7 @@ src/bot.js              Main bot command: check, once, watch
 src/makerOrders.js      Maker limit order helper using public order book levels
 src/priceHistory.js     Hourly price history logger for future backtests
 src/report.js           HTML and CSV report generator
+src/taxExport.js        Slovak tax/accounting CSV export helper
 src/health.js           Basic health check for env/log freshness
 src/backup-logs.js      Local log backup helper
 src/rotate-logs.js      Snapshot log rotation helper
