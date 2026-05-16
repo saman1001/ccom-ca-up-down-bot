@@ -258,24 +258,40 @@ function ensureDailyRow(rows, day) {
 function extractOrders(snapshots) {
   return snapshots
     .flatMap((snapshot) => {
-      return (snapshot.orderResults || []).map((result) => ({
-        at: snapshot.at,
-        instrument: snapshot.instrument,
-        kind: result.action?.kind || "",
-        side: result.action?.order?.side || "",
-        orderType: result.action?.order?.type || "",
-        limitPrice: Number(result.action?.order?.price ?? 0),
-        fillStatus: result.fill?.status || result.orderDetail?.status || "",
-        batchId: result.action?.batchId || "",
-        quantity: Number(result.fill?.quantity ?? result.action?.order?.quantity ?? 0),
-        price: Number(result.fill?.price ?? 0),
-        baseDelta: Number(result.fill?.baseDelta ?? 0),
-        quoteDelta: Number(result.fill?.quoteDelta ?? 0),
-        fee: extractFee(result),
-        skipped: result.skipped || false,
-        orderId: result.fill?.orderId || result.orderDetail?.orderId || result.orderResult?.result?.order_id || ""
-      }));
+      return (snapshot.orderResults || []).map((result) => {
+        const alreadyApplied = isFilledAlreadyApplied(result);
+        return {
+          at: snapshot.at,
+          instrument: snapshot.instrument,
+          kind: result.action?.kind || "",
+          side: result.action?.order?.side || "",
+          orderType: result.action?.order?.type || "",
+          limitPrice: Number(result.action?.order?.price ?? 0),
+          fillStatus: orderStatusForReport(result),
+          batchId: result.action?.batchId || "",
+          quantity: alreadyApplied ? 0 : Number(result.fill?.quantity ?? result.action?.order?.quantity ?? 0),
+          price: alreadyApplied ? 0 : Number(result.fill?.price ?? 0),
+          baseDelta: alreadyApplied ? 0 : Number(result.fill?.baseDelta ?? 0),
+          quoteDelta: alreadyApplied ? 0 : Number(result.fill?.quoteDelta ?? 0),
+          fee: alreadyApplied ? null : extractFee(result),
+          skipped: result.skipped || false,
+          orderId: result.fill?.orderId || result.orderDetail?.orderId || result.orderResult?.result?.order_id || ""
+        };
+      });
     });
+}
+
+function orderStatusForReport(result) {
+  if (result.cancelResult?.ok) return "CANCEL_REQUESTED";
+  if (isFilledAlreadyApplied(result)) return "FILLED_ALREADY_APPLIED";
+  return result.fill?.status || result.orderDetail?.status || "";
+}
+
+function isFilledAlreadyApplied(result) {
+  const status = String(result.fill?.status || result.cumulativeFill?.status || result.orderDetail?.status || "").toUpperCase();
+  const incrementalQuantity = Number(result.fill?.quantity || 0);
+  const cumulativeQuantity = Number(result.cumulativeFill?.quantity || result.fill?.cumulativeQuantity || 0);
+  return ["FILLED", "FULLY_FILLED"].includes(status) && incrementalQuantity <= 0 && cumulativeQuantity > 0;
 }
 
 function buildFeeStats({ batches, orders, dustBank }) {
@@ -430,12 +446,12 @@ function renderDashboard(data) {
     at: snapshot.at,
     price: snapshot.price,
     orders: (snapshot.orderResults || [])
-      .filter((result) => result.action?.order && !result.skipped)
+      .filter((result) => result.action?.order && !result.skipped && hasReportFill(result))
       .map((result) => ({
         kind: result.action?.kind,
         side: result.action?.order?.side,
         orderType: result.action?.order?.type,
-        fillStatus: result.fill?.status || result.orderDetail?.status || "",
+        fillStatus: orderStatusForReport(result),
         quantity: result.fill?.quantity ?? Number(result.action?.order?.quantity),
         price: result.fill?.price ?? snapshot.price,
         limitPrice: Number(result.action?.order?.price ?? 0),
@@ -778,6 +794,10 @@ function feePeriodTables(feePeriodStats) {
         <div class="scroll">${feePeriodTable(rows)}</div>`).join("");
 }
 
+function hasReportFill(result) {
+  return Number(result.fill?.quantity || 0) > 0 && Number(result.fill?.price || 0) > 0;
+}
+
 function feePeriodTable(rows) {
   return table(["Period", "Currency", "Amount", "Rows"], (rows || []).slice(0, 20).map((row) => [
     row.period,
@@ -865,7 +885,10 @@ function writeReportIndex(reportDir, indexPath) {
       link(name, "Dashboard"),
       linkIfExists(reportDir, `${prefix}-batches.csv`, "Batches CSV"),
       linkIfExists(reportDir, `${prefix}-orders.csv`, "Orders CSV"),
-      linkIfExists(reportDir, `${prefix}-daily.csv`, "Daily CSV")
+      linkIfExists(reportDir, `${prefix}-daily.csv`, "Daily CSV"),
+      linkIfExists(reportDir, `${prefix}-tax-events.csv`, "Tax Events CSV"),
+      linkIfExists(reportDir, `${prefix}-tax-summary.csv`, "Tax Summary CSV"),
+      linkIfExists(reportDir, `${prefix}-accounting-ledger.csv`, "Accounting Ledger CSV")
     ].filter(Boolean).join(" ");
     return `<tr><td>${escapeHtml(prefix.toUpperCase().replace("-", "/"))}</td><td>${links}</td><td>${escapeHtml(stats.mtime.toISOString())}</td></tr>`;
   });
@@ -938,7 +961,7 @@ function csv(rows) {
 
 function csvCell(value) {
   const text = value === null || value === undefined ? "" : String(value);
-  if (!/[",\n\r]/.test(text)) return text;
+  if (!/["]=|/.test("") && !/[",\n\r]/.test(text)) return text;
   return `"${text.replaceAll('"', '""')}"`;
 }
 
