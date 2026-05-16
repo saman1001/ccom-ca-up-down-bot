@@ -44,6 +44,7 @@
 
 - [x] Pridat maximalny pocet otvorenych davok (`MAX_OPEN_BATCHES`).
 - [x] Pridat denny limit novych zakladnych nakupov (`DAILY_BASE_BUY_LIMIT`).
+- [x] Pridat vynuteny minimalny pocet zakladnych nakupov za tyzden (`FORCE_BASE_BUY_WEEKLY_LIMIT`).
 - [x] Pridat minimalny quote zostatok, pod ktorym bot prestane nakupovat (`MIN_QUOTE_BALANCE`).
 - [x] Pridat kontrolu, ze bot neobchoduje, ak burza vracia podozrive alebo neuplne data.
 - [x] Pridat validaciu nastaveni pri starte: par, minimalny order, velkost davky, trading/dry-run a log adresar.
