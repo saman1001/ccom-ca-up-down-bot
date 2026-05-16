@@ -707,11 +707,15 @@ function buildClientOid({ action, config, now }) {
   const bucket = Number.isFinite(nowMs) ? Math.floor(nowMs / intervalMs) : Math.floor(Date.now() / intervalMs);
   const source = [
     config.instrument,
+    config.orderMode || "market",
     action.kind,
     action.batchId || "none",
     action.order?.side || "",
     action.order?.type || "",
     action.order?.quantity || "",
+    action.order?.price || "",
+    Array.isArray(action.order?.exec_inst) ? action.order.exec_inst.join("+") : "",
+    action.order?.time_in_force || "",
     bucket
   ].join("|");
   return `ccbot_${crypto.createHash("sha256").update(source).digest("hex").slice(0, 24)}`;
