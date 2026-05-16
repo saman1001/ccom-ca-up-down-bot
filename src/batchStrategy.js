@@ -107,15 +107,24 @@ export function buildBatchPlan({ batches, dustBank, instrumentRules, price, conf
     }
   }
 
-  if (config.buyBaseBatchEveryRun) {
-    const lastBaseBuy = findLastBaseBuy(batches);
-    const cooldownMs = Math.max(0, config.baseBuyCooldownMinutes) * 60 * 1000;
-    const lastBaseBuyAt = lastBaseBuy ? new Date(lastBaseBuy.at).getTime() : 0;
-    const nowMs = new Date(now).getTime();
-    const maxOpenBatches = Math.max(0, Number(config.maxOpenBatches || 0));
-    const dailyBaseBuyLimit = Math.max(0, Number(config.dailyBaseBuyLimit || 0));
-    const baseBuysToday = countBaseBuysSince(batches, startOfUtcDayMs(nowMs));
+  const lastBaseBuy = findLastBaseBuy(batches);
+  const cooldownMs = Math.max(0, config.baseBuyCooldownMinutes) * 60 * 1000;
+  const lastBaseBuyAt = lastBaseBuy ? new Date(lastBaseBuy.at).getTime() : 0;
+  const nowMs = new Date(now).getTime();
+  const maxOpenBatches = Math.max(0, Number(config.maxOpenBatches || 0));
+  const dailyBaseBuyLimit = Math.max(0, Number(config.dailyBaseBuyLimit || 0));
+  const forceBaseBuyWeeklyLimit = Math.max(0, Number(config.forceBaseBuyWeeklyLimit || 0));
+  const baseBuysToday = countBaseBuysSince(batches, startOfUtcDayMs(nowMs));
+  const baseBuysThisWeek = countBaseBuysSince(batches, startOfUtcWeekMs(nowMs));
 
+  if (forceBaseBuyWeeklyLimit > 0 && baseBuysThisWeek < forceBaseBuyWeeklyLimit) {
+    actions.push(buildBaseBuyAction({
+      config,
+      batchQuantity,
+      kind: "FORCE_BASE_BUY",
+      reason: `Forced weekly base buy ${baseBuysThisWeek + 1}/${forceBaseBuyWeeklyLimit}.`
+    }));
+  } else if (config.buyBaseBatchEveryRun) {
     if (maxOpenBatches > 0 && openBatchCount >= maxOpenBatches) {
       actions.push({
         kind: "SKIP_BASE_BUY_MAX_OPEN_BATCHES",
@@ -138,17 +147,12 @@ export function buildBatchPlan({ batches, dustBank, instrumentRules, price, conf
         reason: `Last base buy is newer than ${config.baseBuyCooldownMinutes} minutes.`
       });
     } else {
-      actions.push({
+      actions.push(buildBaseBuyAction({
+        config,
+        batchQuantity,
         kind: "BASE_BUY",
-        batchId: null,
-        order: {
-          instrument_name: config.instrument,
-          side: "BUY",
-          type: "MARKET",
-          quantity: String(batchQuantity)
-        },
         reason: "Scheduled base batch buy."
-      });
+      }));
     }
   }
 
@@ -163,11 +167,25 @@ function isBelowMinNotional(quantity, price, instrumentRules) {
   return minNotional > 0 && quantity * price < minNotional;
 }
 
+function buildBaseBuyAction({ config, batchQuantity, kind, reason }) {
+  return {
+    kind,
+    batchId: null,
+    order: {
+      instrument_name: config.instrument,
+      side: "BUY",
+      type: "MARKET",
+      quantity: String(batchQuantity)
+    },
+    reason
+  };
+}
+
 function findLastBaseBuy(batches) {
   let latest = null;
   for (const batch of batches) {
     for (const buy of batch.buys || []) {
-      if (buy.reason !== "BASE_BUY") continue;
+      if (!isBaseBuyReason(buy.reason)) continue;
       if (!latest || new Date(buy.at).getTime() > new Date(latest.at).getTime()) {
         latest = buy;
       }
@@ -180,7 +198,7 @@ function countBaseBuysSince(batches, startMs) {
   let count = 0;
   for (const batch of batches) {
     for (const buy of batch.buys || []) {
-      if (buy.reason !== "BASE_BUY") continue;
+      if (!isBaseBuyReason(buy.reason)) continue;
       const atMs = new Date(buy.at).getTime();
       if (Number.isFinite(atMs) && atMs >= startMs) {
         count += 1;
@@ -196,12 +214,23 @@ function startOfUtcDayMs(nowMs) {
   return Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
 }
 
+function startOfUtcWeekMs(nowMs) {
+  const now = new Date(nowMs);
+  if (!Number.isFinite(now.getTime())) return 0;
+  const day = now.getUTCDay() || 7;
+  return Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - day + 1);
+}
+
+function isBaseBuyReason(reason) {
+  return reason === "BASE_BUY" || reason === "FORCE_BASE_BUY";
+}
+
 export function applyFilledBatchAction({ batches, action, fillPrice, filledQuantity, fill = null, now }) {
   if (!Number.isFinite(filledQuantity) || filledQuantity <= 0 || !Number.isFinite(fillPrice) || fillPrice <= 0) {
     return;
   }
 
-  if (action.kind === "BASE_BUY") {
+  if (action.kind === "BASE_BUY" || action.kind === "FORCE_BASE_BUY") {
     batches.push({
       id: `batch_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       status: "OPEN",
