@@ -250,6 +250,13 @@ async function runBatchStrategy({ client, config, snapshot }) {
 
     await sleep(1500);
     const orderDetail = recoveredOrderDetail || await loadOrderDetailSafely({ client, orderResult, clientOid: order.client_oid });
+    const makerFallback = makerFallbackDecision({
+      existingOrder,
+      recoveredFromLedger,
+      action: actionWithClientOid,
+      config,
+      now: snapshot.at
+    });
     const balanceAfterOrder = await client.privatePost("private/user-balance", {});
     const balancesAfterOrder = extractBalances(balanceAfterOrder);
     const nextPortfolio = portfolioValue({
@@ -279,6 +286,29 @@ async function runBatchStrategy({ client, config, snapshot }) {
       config
     });
     const ledgerStatus = orderLedgerStatusFromFill({ fill, cumulativeFill });
+    let cancelResult = null;
+
+    if (makerFallback.shouldCancel) {
+      cancelResult = await cancelOrderSafely({
+        client,
+        orderId: cumulativeFill.orderId || getOrderId(orderResult),
+        clientOid: order.client_oid
+      });
+      appendOrderEvent(config.logDir, {
+        status: cancelResult.ok ? "CANCEL_REQUESTED" : "CANCEL_ERROR",
+        instrument: config.instrument,
+        clientOid: order.client_oid,
+        orderId: cumulativeFill.orderId || getOrderId(orderResult),
+        action: sanitizeLedgerAction(actionWithClientOid),
+        reason: makerFallback.reason,
+        cancelResult: sanitizeCancelResult(cancelResult)
+      });
+      orderEvents.push({
+        status: cancelResult.ok ? "CANCEL_REQUESTED" : "CANCEL_ERROR",
+        clientOid: order.client_oid,
+        orderId: cumulativeFill.orderId || getOrderId(orderResult)
+      });
+    }
 
     appendOrderEvent(config.logDir, {
       status: ledgerStatus,
@@ -305,6 +335,8 @@ async function runBatchStrategy({ client, config, snapshot }) {
       orderDetail: sanitizeOrderDetail(orderDetail),
       fill,
       cumulativeFill,
+      makerFallback,
+      cancelResult: sanitizeCancelResult(cancelResult),
       portfolioAfterOrder: nextPortfolio
     });
 
@@ -380,6 +412,12 @@ function validateConfig(config) {
   }
   if (!Number.isFinite(config.makerMaxSpreadPct) || config.makerMaxSpreadPct < 0) {
     problems.push("MAKER_MAX_SPREAD_PCT must be 0 or greater");
+  }
+  if (!Number.isFinite(config.makerOrderTimeoutMinutes) || config.makerOrderTimeoutMinutes < 0) {
+    problems.push("MAKER_ORDER_TIMEOUT_MINUTES must be 0 or greater");
+  }
+  if (!Number.isFinite(config.makerRepriceAfterMinutes) || config.makerRepriceAfterMinutes < 0) {
+    problems.push("MAKER_REPRICE_AFTER_MINUTES must be 0 or greater");
   }
   if (!["POST_ONLY", "SMART_POST_ONLY"].includes(config.makerPostOnlyMode)) {
     problems.push("MAKER_POST_ONLY_MODE must be POST_ONLY or SMART_POST_ONLY");
@@ -507,6 +545,31 @@ async function loadOrderDetailByIdentifiers({ client, orderId = "", clientOid = 
   }
 }
 
+async function cancelOrderSafely({ client, orderId, clientOid }) {
+  if (!orderId) {
+    return {
+      ok: false,
+      error: "Cannot cancel maker order because order_id is missing.",
+      clientOid
+    };
+  }
+
+  try {
+    const response = await client.privatePost("private/cancel-order", { order_id: orderId });
+    return {
+      ok: true,
+      orderId,
+      response
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      orderId,
+      error: error.message
+    };
+  }
+}
+
 function inferFillFromOrderDetail({ action, orderResult, orderDetail, fallbackFill, config }) {
   const row = orderDetail?.result?.order_info || orderDetail?.result?.data || orderDetail?.result;
   const grossQuantity = Number(row?.cumulative_quantity ?? row?.quantity ?? 0);
@@ -611,6 +674,18 @@ function sanitizeOrderDetail(orderDetail) {
   };
 }
 
+function sanitizeCancelResult(cancelResult) {
+  if (!cancelResult) return null;
+  return {
+    ok: Boolean(cancelResult.ok),
+    orderId: cancelResult.orderId || "",
+    clientOid: cancelResult.clientOid || "",
+    error: cancelResult.error || "",
+    code: cancelResult.response?.code ?? null,
+    method: cancelResult.response?.method || ""
+  };
+}
+
 function hasOrderDetailRow(orderDetail) {
   return Boolean(orderDetail?.result?.order_info || orderDetail?.result?.data || orderDetail?.result?.order_id);
 }
@@ -709,6 +784,38 @@ function inferFillFromPortfolioDelta({ action, before, after, fallbackPrice }) {
 
 function hasFilledQuantity(fill) {
   return Number.isFinite(fill?.quantity) && fill.quantity > 0 && Number.isFinite(fill?.price) && fill.price > 0;
+}
+
+function makerFallbackDecision({ existingOrder, recoveredFromLedger, action, config, now }) {
+  if (!recoveredFromLedger || config.orderMode !== "maker" || action.order?.type !== "LIMIT") {
+    return { shouldCancel: false, reason: "" };
+  }
+
+  const createdAt = new Date(existingOrder?.firstActiveAt || existingOrder?.at || 0).getTime();
+  const nowMs = new Date(now).getTime();
+  if (!Number.isFinite(createdAt) || !Number.isFinite(nowMs) || nowMs <= createdAt) {
+    return { shouldCancel: false, reason: "" };
+  }
+
+  const ageMinutes = (nowMs - createdAt) / 60000;
+  const timeout = Math.max(0, Number(config.makerOrderTimeoutMinutes || 0));
+  const reprice = Math.max(0, Number(config.makerRepriceAfterMinutes || 0));
+
+  if (timeout > 0 && ageMinutes >= timeout) {
+    return {
+      shouldCancel: true,
+      reason: `Maker order is ${ageMinutes.toFixed(1)} minutes old, above MAKER_ORDER_TIMEOUT_MINUTES=${timeout}.`
+    };
+  }
+
+  if (reprice > 0 && ageMinutes >= reprice) {
+    return {
+      shouldCancel: true,
+      reason: `Maker order is ${ageMinutes.toFixed(1)} minutes old, above MAKER_REPRICE_AFTER_MINUTES=${reprice}. It will be cancelled so the next run can place a fresh book-level order.`
+    };
+  }
+
+  return { shouldCancel: false, reason: "" };
 }
 
 function latestAppliedFillByClientOid(events, clientOid) {
@@ -833,9 +940,11 @@ async function watch() {
   }, intervalMs);
 }
 
-function checkConfig() {
+async function checkConfig() {
   const config = loadConfig();
   const validationProblems = validateConfig(config);
+  const client = new CryptoComClient(config);
+  const instrumentRules = await loadInstrumentRules(client, config.instrument);
   const safeConfig = {
     ...config,
     apiKey: config.apiKey ? "(set)" : "(missing)",
@@ -844,6 +953,7 @@ function checkConfig() {
     telegramChatId: config.telegramChatId ? "(set)" : "(missing)",
     emailReportTo: config.emailReportTo ? "(set)" : "(missing)",
     emailReportFrom: config.emailReportFrom ? "(set)" : "(missing)",
+    instrumentRules,
     validation: validationProblems.length ? { ok: false, problems: validationProblems } : { ok: true, problems: [] }
   };
   console.log(JSON.stringify(safeConfig, null, 2));
@@ -855,7 +965,7 @@ try {
   if (command === "watch") {
     await watch();
   } else if (command === "check") {
-    checkConfig();
+    await checkConfig();
   } else {
     await runOnce();
   }
