@@ -263,9 +263,12 @@ function extractOrders(snapshots) {
         instrument: snapshot.instrument,
         kind: result.action?.kind || "",
         side: result.action?.order?.side || "",
+        orderType: result.action?.order?.type || "",
+        limitPrice: Number(result.action?.order?.price ?? 0),
+        fillStatus: result.fill?.status || result.orderDetail?.status || "",
         batchId: result.action?.batchId || "",
         quantity: Number(result.fill?.quantity ?? result.action?.order?.quantity ?? 0),
-        price: Number(result.fill?.price ?? snapshot.price ?? 0),
+        price: Number(result.fill?.price ?? 0),
         baseDelta: Number(result.fill?.baseDelta ?? 0),
         quoteDelta: Number(result.fill?.quoteDelta ?? 0),
         fee: extractFee(result),
@@ -431,8 +434,11 @@ function renderDashboard(data) {
       .map((result) => ({
         kind: result.action?.kind,
         side: result.action?.order?.side,
+        orderType: result.action?.order?.type,
+        fillStatus: result.fill?.status || result.orderDetail?.status || "",
         quantity: result.fill?.quantity ?? Number(result.action?.order?.quantity),
         price: result.fill?.price ?? snapshot.price,
+        limitPrice: Number(result.action?.order?.price ?? 0),
         batchId: result.action?.batchId
       }))
   }));
@@ -581,12 +587,15 @@ function renderDashboard(data) {
       </section>
       <section>
         <h2>Recent Orders</h2>
-        <div class="scroll">${table(["Time", "Kind", "Side", "Qty", "Price"], recentOrders.map((order) => [
+        <div class="scroll">${table(["Time", "Kind", "Side", "Type", "Qty", "Fill Price", "Limit", "Status"], recentOrders.map((order) => [
           order.at,
           order.kind || "-",
           order.side || "-",
+          order.orderType || "-",
           fmt(order.quantity || 0, 8),
-          order.price ? money(order.price) : "-"
+          order.price ? money(order.price) : "-",
+          order.limitPrice ? money(order.limitPrice) : "-",
+          order.fillStatus || (order.skipped ? "SKIPPED" : "-")
         ]))}</div>
       </section>
     </div>
@@ -807,15 +816,18 @@ function renderBatchesCsv(data) {
 
 function renderOrdersCsv(data) {
   return csv([
-    ["at", "instrument", "kind", "side", "batch_id", "quantity", "price", "base_delta", "quote_delta", "fee_amount", "fee_currency", "skipped", "order_id"],
+    ["at", "instrument", "kind", "side", "order_type", "batch_id", "quantity", "fill_price", "limit_price", "fill_status", "base_delta", "quote_delta", "fee_amount", "fee_currency", "skipped", "order_id"],
     ...data.orders.map((order) => [
       order.at,
       order.instrument,
       order.kind,
       order.side,
+      order.orderType,
       order.batchId,
       order.quantity,
       order.price,
+      order.limitPrice || "",
+      order.fillStatus,
       order.baseDelta,
       order.quoteDelta,
       order.fee?.amount ?? "",
