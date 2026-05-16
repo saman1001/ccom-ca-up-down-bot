@@ -45,8 +45,9 @@ export function isTerminalOrderStatus(status) {
 export function latestActiveOrderEventForAction(events, action) {
   for (let index = events.length - 1; index >= 0; index -= 1) {
     const event = events[index];
-    if (!event || isTerminalOrderStatus(event.status)) continue;
+    if (!event) continue;
     if (!isSameAction(event.action, action)) continue;
+    if (isTerminalOrderStatus(event.status)) return null;
     return {
       ...event,
       firstActiveAt: firstActiveOrderTime(events, event, action)
