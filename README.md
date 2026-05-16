@@ -183,6 +183,8 @@ ORDER_MODE=maker
 MAKER_BOOK_LEVEL=3
 MAKER_POST_ONLY_MODE=SMART_POST_ONLY
 MAKER_MAX_SPREAD_PCT=0
+MAKER_ORDER_TIMEOUT_MINUTES=0
+MAKER_REPRICE_AFTER_MINUTES=0
 ```
 
 In maker mode, the batch strategy still decides when to buy, average down, or take profit. Before sending the order, the bot reads the public order book and changes the order into a limit maker order:
@@ -192,6 +194,8 @@ In maker mode, the batch strategy still decides when to buy, average down, or ta
 - `MAKER_BOOK_LEVEL=3` means the third visible price level in the order book,
 - `SMART_POST_ONLY` asks Crypto.com to keep the order maker-side when possible,
 - `MAKER_MAX_SPREAD_PCT=0` disables the spread guard; a positive value skips maker orders when the bid/ask spread is too wide.
+- `MAKER_ORDER_TIMEOUT_MINUTES=0` disables stale-order cancellation; a positive value cancels an old maker order after that many minutes.
+- `MAKER_REPRICE_AFTER_MINUTES=0` disables repricing; a positive value cancels an old maker order so the next run can place a fresh order at the current book level.
 
 Being on the third price level does not guarantee third place in the queue. Queue position at the same price depends on who placed an order earlier. It only means the bot chooses the third price level from the order book.
 
@@ -205,6 +209,8 @@ MAKER_BOOK_LEVEL=3
 ```
 
 Maker orders can remain open or partially fill. The bot records them in `logs/orders.jsonl` and checks active maker orders on later runs before creating another matching order.
+
+`node src/bot.js check` prints the loaded instrument rules, including quantity decimals, price decimals, tick sizes, minimum quantity, and minimum notional when Crypto.com returns them.
 
 ## Multiple Pairs
 
