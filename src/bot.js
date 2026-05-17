@@ -170,10 +170,11 @@ async function runBatchStrategy({ client, config, snapshot }) {
       continue;
     }
 
-    let order = {
+    const plannedOrder = {
       ...action.order,
       client_oid: buildClientOid({ action, config, now: snapshot.at })
     };
+    let order = plannedOrder;
     let actionWithClientOid = {
       ...action,
       order
@@ -341,8 +342,31 @@ async function runBatchStrategy({ client, config, snapshot }) {
       portfolioAfterOrder: nextPortfolio
     });
 
+    const shouldPlaceFollowUpBaseBuy = shouldPlaceMakerFollowUpBaseBuy({
+      config,
+      action: actionWithClientOid,
+      plannedOrder,
+      recoveredFromLedger,
+      ledgerStatus,
+      fill,
+      cancelResult
+    });
+
     if (!hasFilledQuantity(fill)) {
       previousPortfolio = nextPortfolio;
+      if (shouldPlaceFollowUpBaseBuy) {
+        previousPortfolio = await placeMakerFollowUpBaseBuy({
+          client,
+          config,
+          snapshot,
+          baseAction: action,
+          plannedOrder,
+          orderEvents,
+          result,
+          updatedBatches,
+          previousPortfolio
+        });
+      }
       continue;
     }
 
@@ -380,6 +404,19 @@ async function runBatchStrategy({ client, config, snapshot }) {
     }
 
     previousPortfolio = nextPortfolio;
+    if (shouldPlaceFollowUpBaseBuy) {
+      previousPortfolio = await placeMakerFollowUpBaseBuy({
+        client,
+        config,
+        snapshot,
+        baseAction: action,
+        plannedOrder,
+        orderEvents,
+        result,
+        updatedBatches,
+        previousPortfolio
+      });
+    }
   }
 
   saveBatches(config.logDir, updatedBatches);
@@ -387,6 +424,167 @@ async function runBatchStrategy({ client, config, snapshot }) {
   result.openBatchesAfter = updatedBatches.filter((batch) => batch.status === "OPEN").length;
   result.dustBankAfter = updatedDustBank.quantity || 0;
   return result;
+}
+
+function shouldPlaceMakerFollowUpBaseBuy({ config, action, plannedOrder, recoveredFromLedger, ledgerStatus, fill, cancelResult }) {
+  if (config.orderMode !== "maker" || !recoveredFromLedger) return false;
+  if (!["BASE_BUY", "FORCE_BASE_BUY"].includes(action.kind)) return false;
+  if (action.order?.side !== "BUY" || action.order?.type !== "LIMIT") return false;
+  if (!plannedOrder?.client_oid || plannedOrder.client_oid === action.order?.client_oid) return false;
+  return hasFilledQuantity(fill) || isTerminalOrderStatus(ledgerStatus) || Boolean(cancelResult?.ok);
+}
+
+async function placeMakerFollowUpBaseBuy({
+  client,
+  config,
+  snapshot,
+  baseAction,
+  plannedOrder,
+  orderEvents,
+  result,
+  updatedBatches,
+  previousPortfolio
+}) {
+  if (latestOrderEventByClientOid(orderEvents, plannedOrder.client_oid)) {
+    return previousPortfolio;
+  }
+
+  const guardedOrder = applyOrderSafetyGuard({
+    order: plannedOrder,
+    portfolio: previousPortfolio,
+    price: snapshot.price,
+    config
+  });
+  const actionWithClientOid = {
+    ...baseAction,
+    order: guardedOrder || plannedOrder,
+    followUpAfterRecoveredMakerOrder: true
+  };
+
+  if (!guardedOrder) {
+    result.orderResults.push({
+      action: {
+        ...actionWithClientOid,
+        order: null,
+        originalKind: baseAction.kind,
+        reason: buySafetyGuardReason({
+          order: plannedOrder,
+          portfolio: previousPortfolio,
+          price: snapshot.price,
+          config
+        })
+      },
+      skipped: true
+    });
+    return previousPortfolio;
+  }
+
+  appendOrderEvent(config.logDir, {
+    status: "PENDING",
+    instrument: config.instrument,
+    clientOid: plannedOrder.client_oid,
+    action: sanitizeLedgerAction(actionWithClientOid)
+  });
+  orderEvents.push({ status: "PENDING", clientOid: plannedOrder.client_oid });
+
+  let orderResult = null;
+  try {
+    orderResult = await client.privatePost("private/create-order", guardedOrder);
+    appendOrderEvent(config.logDir, {
+      status: "CREATED",
+      instrument: config.instrument,
+      clientOid: plannedOrder.client_oid,
+      orderId: getOrderId(orderResult),
+      action: sanitizeLedgerAction(actionWithClientOid)
+    });
+    orderEvents.push({ status: "CREATED", clientOid: plannedOrder.client_oid, orderId: getOrderId(orderResult) });
+  } catch (error) {
+    appendOrderEvent(config.logDir, {
+      status: "CREATE_ERROR",
+      instrument: config.instrument,
+      clientOid: plannedOrder.client_oid,
+      orderId: "",
+      action: sanitizeLedgerAction(actionWithClientOid),
+      error: error.message
+    });
+    throw error;
+  }
+
+  await sleep(1500);
+  const orderDetail = await loadOrderDetailSafely({ client, orderResult, clientOid: plannedOrder.client_oid });
+  const balanceAfterOrder = await client.privatePost("private/user-balance", {});
+  const balancesAfterOrder = extractBalances(balanceAfterOrder);
+  const nextPortfolio = portfolioValue({
+    balances: balancesAfterOrder,
+    baseAsset: config.baseAsset,
+    quoteAsset: config.quoteAsset,
+    price: snapshot.price
+  });
+  const fallbackFill = inferFillFromPortfolioDelta({
+    action: actionWithClientOid,
+    before: previousPortfolio,
+    after: nextPortfolio,
+    fallbackPrice: snapshot.price
+  });
+  const cumulativeFill = inferFillFromOrderDetail({
+    action: actionWithClientOid,
+    orderResult,
+    orderDetail,
+    fallbackFill,
+    config
+  });
+  const previousAppliedFill = latestAppliedFillByClientOid(orderEvents, plannedOrder.client_oid);
+  const fill = incrementalFillFromCumulative({
+    cumulativeFill,
+    previousAppliedFill,
+    action: actionWithClientOid,
+    config
+  });
+  const ledgerStatus = orderLedgerStatusFromFill({ fill, cumulativeFill });
+
+  appendOrderEvent(config.logDir, {
+    status: ledgerStatus,
+    instrument: config.instrument,
+    clientOid: plannedOrder.client_oid,
+    orderId: cumulativeFill.orderId || fill.orderId || getOrderId(orderResult),
+    action: sanitizeLedgerAction(actionWithClientOid),
+    orderDetail: sanitizeOrderDetail(orderDetail),
+    fill: sanitizeLedgerFill(fill)
+  });
+  orderEvents.push({
+    status: ledgerStatus,
+    clientOid: plannedOrder.client_oid,
+    orderId: cumulativeFill.orderId || fill.orderId || getOrderId(orderResult),
+    fill: sanitizeLedgerFill(fill)
+  });
+
+  result.orderResults.push({
+    action: actionWithClientOid,
+    recoveredFromLedger: false,
+    followUpAfterRecoveredMakerOrder: true,
+    previousStatus: "",
+    previousOrderId: "",
+    orderResult,
+    orderDetail: sanitizeOrderDetail(orderDetail),
+    fill,
+    cumulativeFill,
+    makerFallback: { shouldCancel: false, reason: "" },
+    cancelResult: null,
+    portfolioAfterOrder: nextPortfolio
+  });
+
+  if (hasFilledQuantity(fill)) {
+    applyFilledBatchAction({
+      batches: updatedBatches,
+      action: actionWithClientOid,
+      fillPrice: fill.price,
+      filledQuantity: fill.quantity,
+      fill,
+      now: snapshot.at
+    });
+  }
+
+  return nextPortfolio;
 }
 
 function validateConfig(config) {
