@@ -98,6 +98,26 @@ Ak je posledny snapshot starsi nez 90 minut, health-check skonci chybou. Limit s
 HEALTH_MAX_SNAPSHOT_AGE_MINUTES=130 node src/health.js .env.cro-usd .env.btc-usd
 ```
 
+## SQLite databaza
+
+Kazdy par ma vlastnu SQLite databazu v privatnom `LOG_DIR`:
+
+```text
+logs/cro-usd/bot.sqlite
+logs/btc-usd/bot.sqlite
+```
+
+Po nasadeni alebo po obnove zo zalohy natiahni existujuce logy do SQLite:
+
+```bash
+cd /opt/ccom-ca-up-down-bot
+ENV_FILE=.env.cro-usd node src/migrate-sqlite.js
+ENV_FILE=.env.btc-usd node src/migrate-sqlite.js
+node src/health.js .env.cro-usd .env.btc-usd
+```
+
+Databazy patria medzi runtime data. Necommitovat ich do GitHubu.
+
 ## Reporty
 
 Reporty sa generuju automaticky po kazdom behu bota. Rucne pregenerovanie vsetkych znamych parov:
