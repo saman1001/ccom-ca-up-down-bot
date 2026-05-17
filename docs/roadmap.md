@@ -134,6 +134,9 @@
 
 Toto robit az po doplneni spolahliveho order ledgeru, presneho fill reconciliation a zakladnych bezpecnostnych poistiek.
 
+- [x] Pripravit SQLite databazu ako jednoduchy medzikrok medzi JSON logmi a web UI.
+- [ ] Navrhnut databazovu vrstvu tak, aby sa dala neskor prepnut zo SQLite na PostgreSQL.
+- [ ] Pre vacsie web UI/API zvazit PostgreSQL ako cielovu produkcnu databazu.
 - [ ] Vytvorit lokalnu web stranku/dashboard pre bota.
 - [ ] Zobrazit aktualne portfolio, zostatky a hodnotu uctu.
 - [ ] Zobrazit otvorene a uzavrete davky pre kazdy par samostatne.
