@@ -66,6 +66,7 @@
 - [x] Pridat experimentalny maker limit order rezim namiesto market orderov cez `ORDER_MODE=maker`.
 - [x] Pridat fallback: ak sa limit order nevyplni do X minut, zrusit alebo upravit cenu.
 - [x] Lepsie pracovat s ciastocnymi fillmi priamo cez order detail a order ledger.
+- [ ] Preskumat rozdelenie velkych orderov na viac mensich maker casti, hlavne pri vacsich predajoch, aby jeden velky limit order zbytocne nevisel v order booku.
 
 ## Reporty a statistiky
 
