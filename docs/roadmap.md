@@ -67,6 +67,7 @@
 - [x] Pridat fallback: ak sa limit order nevyplni do X minut, zrusit alebo upravit cenu.
 - [x] Lepsie pracovat s ciastocnymi fillmi priamo cez order detail a order ledger.
 - [ ] Preskumat rozdelenie velkych orderov na viac mensich maker casti, hlavne pri vacsich predajoch, aby jeden velky limit order zbytocne nevisel v order booku.
+- [ ] Pridat volitelny taker fallback iba pre SELL ordery po X neuspesnych maker pokusoch, napr. MAKER_SELL_MAX_RETRIES_BEFORE_TAKER=20; pre BUY ordery fallback nepouzivat.
 
 ## Reporty a statistiky
 
