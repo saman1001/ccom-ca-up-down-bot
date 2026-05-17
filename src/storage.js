@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { appendSnapshotSqlite } from "./sqliteStore.js";
 
 export function ensureLogDir(logDir) {
   fs.mkdirSync(logDir, { recursive: true });
@@ -19,4 +20,5 @@ export function appendSnapshot(logDir, snapshot) {
   ensureLogDir(logDir);
   const filePath = path.join(logDir, "snapshots.jsonl");
   fs.appendFileSync(filePath, `${JSON.stringify(snapshot)}\n`);
+  appendSnapshotSqlite(logDir, snapshot);
 }
