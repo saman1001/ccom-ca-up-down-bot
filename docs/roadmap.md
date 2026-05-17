@@ -91,6 +91,8 @@
 - [x] Pridat rotaciu logov, aby subory nerastli donekonecna.
 - [x] Pridat jednoduchy health-check prikaz.
 - [x] Pridat prikaz na rychle pregenerovanie a stiahnutie reportov.
+- [x] Pridat SQLite databazu pre kazdy par ako zaklad pre buduce webove UI.
+- [x] Pridat migracny prikaz, ktory natiahne existujuce logy do SQLite.
 
 ## Upozornenia
 
