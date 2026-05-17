@@ -112,7 +112,7 @@ export function buildBatchPlan({ batches, dustBank, instrumentRules, price, conf
 
   const lastBaseBuy = findLastBaseBuy(batches);
   const cooldownMs = Math.max(0, config.baseBuyCooldownMinutes) * 60 * 1000;
-  const lastBaseBuyAt = lastBaseBuy ? new Date(lastBaseBuy.at).getTime() : 0;
+  const lastBaseBuyAt = lastBaseBuy ? cooldownTimeMs(lastBaseBuy) : 0;
   const nowMs = new Date(now).getTime();
   const maxOpenBatches = Math.max(0, Number(config.maxOpenBatches || 0));
   const dailyBaseBuyLimit = Math.max(0, Number(config.dailyBaseBuyLimit || 0));
@@ -189,12 +189,18 @@ function findLastBaseBuy(batches) {
   for (const batch of batches) {
     for (const buy of batch.buys || []) {
       if (!isBaseBuyReason(buy.reason)) continue;
-      if (!latest || new Date(buy.at).getTime() > new Date(latest.at).getTime()) {
+      if (!latest || cooldownTimeMs(buy) > cooldownTimeMs(latest)) {
         latest = buy;
       }
     }
   }
   return latest;
+}
+
+function cooldownTimeMs(buy) {
+  const value = buy?.cooldownAt || buy?.orderCreatedAt || buy?.at;
+  const timestamp = new Date(value).getTime();
+  return Number.isFinite(timestamp) ? timestamp : 0;
 }
 
 function countBaseBuysSince(batches, startMs) {
@@ -232,18 +238,21 @@ export function applyFilledBatchAction({ batches, action, fillPrice, filledQuant
   if (!Number.isFinite(filledQuantity) || filledQuantity <= 0 || !Number.isFinite(fillPrice) || fillPrice <= 0) {
     return;
   }
+  const tradeAt = fill?.executedAt || now;
+  const cooldownAt = fill?.orderCreatedAt || tradeAt;
 
   if (action.kind === "BASE_BUY" || action.kind === "FORCE_BASE_BUY") {
     batches.push({
       id: `batch_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       status: "OPEN",
-      createdAt: now,
-      updatedAt: now,
+      createdAt: tradeAt,
+      updatedAt: tradeAt,
       quantity: filledQuantity,
       averagePrice: fillPrice,
       buys: [
         {
-          at: now,
+          at: tradeAt,
+          cooldownAt,
           quantity: filledQuantity,
           price: fillPrice,
           reason: action.kind,
@@ -263,9 +272,9 @@ export function applyFilledBatchAction({ batches, action, fillPrice, filledQuant
     const newCost = filledQuantity * fillPrice;
     batch.quantity += filledQuantity;
     batch.averagePrice = (oldCost + newCost) / batch.quantity;
-    batch.updatedAt = now;
+    batch.updatedAt = tradeAt;
     batch.buys.push({
-      at: now,
+      at: tradeAt,
       quantity: filledQuantity,
       price: fillPrice,
       reason: action.kind,
@@ -331,6 +340,8 @@ function tradeFillFields(fill) {
     orderId: fill.orderId || "",
     orderStatus: fill.status || "",
     fillSource: fill.source || "",
+    orderCreatedAt: fill.orderCreatedAt,
+    executedAt: fill.executedAt,
     grossQuantity: fill.grossQuantity,
     netQuantity: fill.netQuantity,
     averageExecutionPrice: fill.averageExecutionPrice,
