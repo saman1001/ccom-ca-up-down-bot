@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { formatOrderQuantity, roundDownQuantity } from "./instrumentRules.js";
+import { saveStateSqlite } from "./sqliteStore.js";
 
 function batchFilePath(logDir) {
   return path.join(logDir, "batches.json");
@@ -18,6 +19,7 @@ export function loadBatches(logDir) {
 export function saveBatches(logDir, batches) {
   fs.mkdirSync(logDir, { recursive: true });
   fs.writeFileSync(batchFilePath(logDir), `${JSON.stringify(batches, null, 2)}\n`);
+  saveStateSqlite(logDir, "batches", batches);
 }
 
 export function buildBatchPlan({ batches, dustBank, instrumentRules, price, config, now = new Date().toISOString() }) {
