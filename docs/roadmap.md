@@ -82,6 +82,7 @@
 - [x] Pridat priemerny cas drzania davky.
 - [x] Pridat prehlad najziskovejsich a najhorsich davok.
 - [x] Pridat spolocny index reportov, ktory odkazuje na dashboardy vsetkych parov.
+- [x] Pridat maker order statistiky: fill rate, cancel rate, priemerny/median/najdlhsi cas do fillu, cas do cancelu a rozpad podla typu orderu.
 
 ## Prevadzka na VPS
 

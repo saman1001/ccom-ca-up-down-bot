@@ -213,6 +213,14 @@ MAKER_BOOK_LEVEL=3
 
 Maker orders can remain open or partially fill. The bot records them in `logs/orders.jsonl` and checks active maker orders on later runs before creating another matching order.
 
+Reports include maker order statistics built from saved order details:
+
+- maker fill rate and cancel rate,
+- average, median, and longest time from order creation to fill,
+- average time from order creation to cancel,
+- breakdown by side and action kind,
+- recent maker orders with their final status and wait time.
+
 `node src/bot.js check` prints the loaded instrument rules, including quantity decimals, price decimals, tick sizes, minimum quantity, and minimum notional when Crypto.com returns them.
 
 ## Multiple Pairs
