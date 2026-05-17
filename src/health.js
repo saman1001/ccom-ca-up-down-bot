@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { loadConfig } from "./config.js";
+import { sqliteStats } from "./sqliteStore.js";
 
 const envFiles = process.argv.slice(2);
 const files = envFiles.length ? envFiles : [".env.cro-usd", ".env.btc-usd"].filter((file) => fs.existsSync(file));
@@ -24,6 +25,7 @@ for (const envFile of files) {
   const openBatches = batches.filter((batch) => batch.status === "OPEN").length;
   const serviceName = serviceNameForInstrument(config.instrument);
   const serviceActive = systemctlIsActive(serviceName);
+  const sqlite = sqliteStats(config.logDir);
   const problems = [];
 
   if (!latest) problems.push("missing snapshots.jsonl");
@@ -43,6 +45,7 @@ for (const envFile of files) {
     price: latest?.price || null,
     openBatches,
     dustBankQuantity: dustBank.quantity || 0,
+    sqlite,
     reportPath,
     ok: problems.length === 0,
     problems
