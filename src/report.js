@@ -256,7 +256,7 @@ function ensureDailyRow(rows, day) {
 }
 
 function extractOrders(snapshots) {
-  return snapshots
+  const orders = snapshots
     .flatMap((snapshot) => {
       return (snapshot.orderResults || []).map((result) => {
         const alreadyApplied = isFilledAlreadyApplied(result);
@@ -279,12 +279,39 @@ function extractOrders(snapshots) {
         };
       });
     });
+  return markHistoricalActiveOrders(orders);
+}
+
+function markHistoricalActiveOrders(orders) {
+  const terminalByOrderId = new Map();
+  for (const order of orders) {
+    if (!order.orderId) continue;
+    if (["FILLED", "CANCELED", "CANCELLED", "EXPIRED", "REJECTED", "FAILED"].includes(String(order.fillStatus).toUpperCase())) {
+      terminalByOrderId.set(order.orderId, order.fillStatus);
+    }
+  }
+  return orders.map((order) => {
+    if (String(order.fillStatus).toUpperCase() !== "ACTIVE") return order;
+    const terminalStatus = terminalByOrderId.get(order.orderId);
+    if (!terminalStatus) return order;
+    return {
+      ...order,
+      fillStatus: `ACTIVE_THEN_${terminalStatus}`
+    };
+  });
 }
 
 function orderStatusForReport(result) {
   if (result.cancelResult?.ok) return "CANCEL_REQUESTED";
+  if (isStaleClientOidResult(result)) return "STALE_CLIENT_OID_IGNORED";
   if (isFilledAlreadyApplied(result)) return "FILLED_ALREADY_APPLIED";
   return result.fill?.status || result.orderDetail?.status || "";
+}
+
+function isStaleClientOidResult(result) {
+  const actionType = String(result.action?.order?.type || "").toUpperCase();
+  const detailType = String(result.orderDetail?.type || "").toUpperCase();
+  return actionType && detailType && actionType !== detailType && isFilledAlreadyApplied(result);
 }
 
 function isFilledAlreadyApplied(result) {
@@ -961,7 +988,7 @@ function csv(rows) {
 
 function csvCell(value) {
   const text = value === null || value === undefined ? "" : String(value);
-  if (!/["]=|/.test("") && !/[",\n\r]/.test(text)) return text;
+  if (!/[",\n\r]/.test(text)) return text;
   return `"${text.replaceAll('"', '""')}"`;
 }
 
