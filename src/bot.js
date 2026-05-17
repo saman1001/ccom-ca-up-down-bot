@@ -312,8 +312,10 @@ async function runBatchStrategy({ client, config, snapshot }) {
       });
     }
 
+    const finalLedgerStatus = cancelResult?.ok && !hasFilledQuantity(fill) ? "CANCEL_REQUESTED" : ledgerStatus;
+
     appendOrderEvent(config.logDir, {
-      status: ledgerStatus,
+      status: finalLedgerStatus,
       instrument: config.instrument,
       clientOid: order.client_oid,
       orderId: cumulativeFill.orderId || fill.orderId || getOrderId(orderResult),
@@ -322,7 +324,7 @@ async function runBatchStrategy({ client, config, snapshot }) {
       fill: sanitizeLedgerFill(fill)
     });
     orderEvents.push({
-      status: ledgerStatus,
+      status: finalLedgerStatus,
       clientOid: order.client_oid,
       orderId: cumulativeFill.orderId || fill.orderId || getOrderId(orderResult),
       fill: sanitizeLedgerFill(fill)

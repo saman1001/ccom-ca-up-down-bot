@@ -286,7 +286,7 @@ function markHistoricalActiveOrders(orders) {
   const terminalByOrderId = new Map();
   for (const order of orders) {
     if (!order.orderId) continue;
-    if (["FILLED", "CANCELED", "CANCELLED", "EXPIRED", "REJECTED", "FAILED"].includes(String(order.fillStatus).toUpperCase())) {
+    if (["FILLED", "CANCELED", "CANCELLED", "CANCEL_REQUESTED", "EXPIRED", "REJECTED", "FAILED"].includes(String(order.fillStatus).toUpperCase())) {
       terminalByOrderId.set(order.orderId, order.fillStatus);
     }
   }

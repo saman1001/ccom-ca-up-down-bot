@@ -39,6 +39,7 @@ export function isTerminalOrderStatus(status) {
     "RECONCILED",
     "CANCELED",
     "CANCELLED",
+    "CANCEL_REQUESTED",
     "REJECTED",
     "EXPIRED",
     "FAILED"
