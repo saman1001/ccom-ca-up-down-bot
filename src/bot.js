@@ -342,7 +342,7 @@ async function runBatchStrategy({ client, config, snapshot }) {
       portfolioAfterOrder: nextPortfolio
     });
 
-    const shouldPlaceFollowUpBaseBuy = shouldPlaceMakerFollowUpBaseBuy({
+    const shouldPlaceFollowUpOrder = shouldPlaceMakerFollowUpOrder({
       config,
       action: actionWithClientOid,
       plannedOrder,
@@ -354,16 +354,17 @@ async function runBatchStrategy({ client, config, snapshot }) {
 
     if (!hasFilledQuantity(fill)) {
       previousPortfolio = nextPortfolio;
-      if (shouldPlaceFollowUpBaseBuy) {
-        previousPortfolio = await placeMakerFollowUpBaseBuy({
+      if (shouldPlaceFollowUpOrder) {
+        previousPortfolio = await placeMakerFollowUpOrder({
           client,
           config,
           snapshot,
-          baseAction: action,
+          sourceAction: action,
           plannedOrder,
           orderEvents,
           result,
           updatedBatches,
+          updatedDustBank,
           previousPortfolio
         });
       }
@@ -379,41 +380,29 @@ async function runBatchStrategy({ client, config, snapshot }) {
       now: snapshot.at
     });
 
-    if (action.kind === "TAKE_PROFIT" && isFullActionFill({ action: actionWithClientOid, fill }) && action.dustQuantity > 0) {
-      addDust(updatedDustBank, {
-        asset: config.baseAsset,
-        quantity: action.dustQuantity,
-        price: fill.price,
-        sourceBatchId: action.batchId,
-        reason: "TAKE_PROFIT_ROUNDING",
-        at: snapshot.at
-      });
-    }
-
-    if (action.kind === "TAKE_PROFIT") {
-      await notifySale(config, { action: actionWithClientOid, fill });
-    }
-
-    if (action.kind === "DUST_SELL") {
-      subtractDust(updatedDustBank, {
-        quantity: fill.quantity,
-        price: fill.price,
-        orderId: orderResult.result?.order_id,
-        at: snapshot.at
-      });
-    }
+    await applyFilledActionEffects({
+      config,
+      action: actionWithClientOid,
+      fill,
+      orderResult,
+      batches: updatedBatches,
+      dustBank: updatedDustBank,
+      now: snapshot.at,
+      skipBatchApply: true
+    });
 
     previousPortfolio = nextPortfolio;
-    if (shouldPlaceFollowUpBaseBuy) {
-      previousPortfolio = await placeMakerFollowUpBaseBuy({
+    if (shouldPlaceFollowUpOrder) {
+      previousPortfolio = await placeMakerFollowUpOrder({
         client,
         config,
         snapshot,
-        baseAction: action,
+        sourceAction: action,
         plannedOrder,
         orderEvents,
         result,
         updatedBatches,
+        updatedDustBank,
         previousPortfolio
       });
     }
@@ -426,23 +415,62 @@ async function runBatchStrategy({ client, config, snapshot }) {
   return result;
 }
 
-function shouldPlaceMakerFollowUpBaseBuy({ config, action, plannedOrder, recoveredFromLedger, ledgerStatus, fill, cancelResult }) {
-  if (config.orderMode !== "maker" || !recoveredFromLedger) return false;
-  if (!["BASE_BUY", "FORCE_BASE_BUY"].includes(action.kind)) return false;
-  if (action.order?.side !== "BUY" || action.order?.type !== "LIMIT") return false;
-  if (!plannedOrder?.client_oid || plannedOrder.client_oid === action.order?.client_oid) return false;
-  return hasFilledQuantity(fill) || isTerminalOrderStatus(ledgerStatus) || Boolean(cancelResult?.ok);
+async function applyFilledActionEffects({ config, action, fill, orderResult, batches, dustBank, now, skipBatchApply = false }) {
+  if (!skipBatchApply) {
+    applyFilledBatchAction({
+      batches,
+      action,
+      fillPrice: fill.price,
+      filledQuantity: fill.quantity,
+      fill,
+      now
+    });
+  }
+
+  if (action.kind === "TAKE_PROFIT" && isFullActionFill({ action, fill }) && action.dustQuantity > 0) {
+    addDust(dustBank, {
+      asset: config.baseAsset,
+      quantity: action.dustQuantity,
+      price: fill.price,
+      sourceBatchId: action.batchId,
+      reason: "TAKE_PROFIT_ROUNDING",
+      at: now
+    });
+  }
+
+  if (action.kind === "TAKE_PROFIT") {
+    await notifySale(config, { action, fill });
+  }
+
+  if (action.kind === "DUST_SELL") {
+    subtractDust(dustBank, {
+      quantity: fill.quantity,
+      price: fill.price,
+      orderId: orderResult.result?.order_id,
+      at: now
+    });
+  }
 }
 
-async function placeMakerFollowUpBaseBuy({
+function shouldPlaceMakerFollowUpOrder({ config, action, plannedOrder, recoveredFromLedger, ledgerStatus, fill, cancelResult }) {
+  if (config.orderMode !== "maker" || !recoveredFromLedger) return false;
+  if (action.order?.type !== "LIMIT") return false;
+  if (!plannedOrder?.client_oid || plannedOrder.client_oid === action.order?.client_oid) return false;
+  if (Boolean(cancelResult?.ok) && !hasFilledQuantity(fill)) return true;
+  if (isExchangeTerminalNoFillStatus(String(ledgerStatus || "").toUpperCase())) return true;
+  return ["BASE_BUY", "FORCE_BASE_BUY"].includes(action.kind) && hasFilledQuantity(fill);
+}
+
+async function placeMakerFollowUpOrder({
   client,
   config,
   snapshot,
-  baseAction,
+  sourceAction,
   plannedOrder,
   orderEvents,
   result,
   updatedBatches,
+  updatedDustBank,
   previousPortfolio
 }) {
   if (latestOrderEventByClientOid(orderEvents, plannedOrder.client_oid)) {
@@ -456,7 +484,7 @@ async function placeMakerFollowUpBaseBuy({
     config
   });
   const actionWithClientOid = {
-    ...baseAction,
+    ...sourceAction,
     order: guardedOrder || plannedOrder,
     followUpAfterRecoveredMakerOrder: true
   };
@@ -466,7 +494,7 @@ async function placeMakerFollowUpBaseBuy({
       action: {
         ...actionWithClientOid,
         order: null,
-        originalKind: baseAction.kind,
+        originalKind: sourceAction.kind,
         reason: buySafetyGuardReason({
           order: plannedOrder,
           portfolio: previousPortfolio,
@@ -581,6 +609,16 @@ async function placeMakerFollowUpBaseBuy({
       filledQuantity: fill.quantity,
       fill,
       now: snapshot.at
+    });
+    await applyFilledActionEffects({
+      config,
+      action: actionWithClientOid,
+      fill,
+      orderResult,
+      batches: updatedBatches,
+      dustBank: updatedDustBank,
+      now: snapshot.at,
+      skipBatchApply: true
     });
   }
 
