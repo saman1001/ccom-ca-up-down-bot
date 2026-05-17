@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { saveStateSqlite } from "./sqliteStore.js";
 
 function dustBankPath(logDir) {
   return path.join(logDir, "dust-bank.json");
@@ -21,6 +22,7 @@ export function loadDustBank(logDir) {
 export function saveDustBank(logDir, dustBank) {
   fs.mkdirSync(logDir, { recursive: true });
   fs.writeFileSync(dustBankPath(logDir), `${JSON.stringify(dustBank, null, 2)}\n`);
+  saveStateSqlite(logDir, "dust_bank", dustBank);
 }
 
 export function addDust(dustBank, { asset, quantity, price, sourceBatchId, reason, at }) {
