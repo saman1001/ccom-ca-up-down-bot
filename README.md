@@ -2,7 +2,7 @@
 
 Experimental Crypto.com Exchange trading bot for batch-based CRO/USD and BTC/USD trading.
 
-The project is intentionally simple: plain Node.js, no runtime dependencies, file-based logs, and HTML/CSV reports. It is a learning and operations project, not investment advice.
+The project is intentionally simple: plain Node.js, no npm runtime dependencies, SQLite runtime storage, file-based safety logs, and HTML/CSV reports. It is a learning and operations project, not investment advice.
 
 ## Safety First
 
@@ -25,7 +25,7 @@ The bot can:
 - load market prices from Crypto.com Exchange,
 - load balances through `private/user-balance`,
 - track one trading pair per process,
-- manage independent batches in JSON logs,
+- manage independent batches in runtime storage,
 - average down into a batch when price drops,
 - take profit by selling a whole batch when price rises,
 - keep rounded-off leftovers in a dust bank,
@@ -270,6 +270,39 @@ Example row:
 ```
 
 These files are runtime logs. Do not commit real VPS log output to the public repository.
+
+## SQLite Storage
+
+The bot also writes runtime data to SQLite for future web UI work. By default each pair gets its own database inside its private `LOG_DIR`:
+
+```text
+logs/cro-usd/bot.sqlite
+logs/btc-usd/bot.sqlite
+```
+
+The SQLite database contains:
+
+- `snapshots` - one row for each bot run,
+- `order_events` - pending, created, filled, cancel and reconcile events,
+- `price_history` - one price row per UTC hour and instrument,
+- `state` - latest `batches` and `dust_bank` JSON state.
+
+The existing JSON/JSONL/CSV log files are still written as a safety backup and for the current reports. Do not commit SQLite databases to GitHub because they contain private balances and trading history.
+
+To import existing log files into SQLite for the active env file:
+
+```bash
+node src/migrate-sqlite.js
+```
+
+For multiple pairs:
+
+```bash
+ENV_FILE=.env.cro-usd node src/migrate-sqlite.js
+ENV_FILE=.env.btc-usd node src/migrate-sqlite.js
+```
+
+Set `ENABLE_SQLITE=false` only if you need to temporarily disable SQLite writes while debugging.
 
 ## Reports
 
