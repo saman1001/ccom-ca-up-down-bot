@@ -11,11 +11,12 @@
     "report": "node src/report.js",
     "health": "node src/health.js",
     "reconcile": "node src/reconcile.js",
+    "sqlite:migrate": "node src/migrate-sqlite.js",
     "tax:export": "node src/taxExport.js",
     "backup:logs": "node src/backup-logs.js",
     "rotate:logs": "node src/rotate-logs.js"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22.5"
   }
 }
