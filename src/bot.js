@@ -581,12 +581,16 @@ function inferFillFromOrderDetail({ action, orderResult, orderDetail, fallbackFi
   const feeCurrency = row?.fee_instrument_name || row?.fee_currency || "";
   const orderId = row?.order_id || getOrderId(orderResult);
   const status = row?.status || "";
+  const orderCreatedAt = exchangeTimeToIso(row?.create_time);
+  const executedAt = exchangeTimeToIso(row?.update_time);
 
   if (row && (!Number.isFinite(grossQuantity) || grossQuantity <= 0)) {
     return {
       source: "order_detail",
       orderId,
       status,
+      orderCreatedAt,
+      executedAt,
       quantity: 0,
       grossQuantity: 0,
       netQuantity: 0,
@@ -606,6 +610,8 @@ function inferFillFromOrderDetail({ action, orderResult, orderDetail, fallbackFi
       source: "portfolio_delta",
       orderId,
       status,
+      orderCreatedAt,
+      executedAt,
       fee: Number.isFinite(feeAmount) && feeAmount > 0 ? { amount: feeAmount, currency: feeCurrency } : null
     };
   }
@@ -623,6 +629,8 @@ function inferFillFromOrderDetail({ action, orderResult, orderDetail, fallbackFi
       source: "order_detail",
       orderId,
       status,
+      orderCreatedAt,
+      executedAt,
       quantity: netQuantity,
       grossQuantity,
       netQuantity,
@@ -641,6 +649,8 @@ function inferFillFromOrderDetail({ action, orderResult, orderDetail, fallbackFi
     source: "order_detail",
     orderId,
     status,
+    orderCreatedAt,
+    executedAt,
     quantity: grossQuantity,
     grossQuantity,
     netQuantity: grossQuantity,
@@ -686,6 +696,13 @@ function sanitizeCancelResult(cancelResult) {
     code: cancelResult.response?.code ?? null,
     method: cancelResult.response?.method || ""
   };
+}
+
+function exchangeTimeToIso(value) {
+  const timestamp = Number(value || 0);
+  if (!Number.isFinite(timestamp) || timestamp <= 0) return "";
+  const date = new Date(timestamp);
+  return Number.isFinite(date.getTime()) ? date.toISOString() : "";
 }
 
 function hasOrderDetailRow(orderDetail) {
@@ -747,6 +764,8 @@ function sanitizeLedgerFill(fill) {
     source: fill.source || "",
     orderId: fill.orderId || "",
     status: fill.status || "",
+    orderCreatedAt: fill.orderCreatedAt || "",
+    executedAt: fill.executedAt || "",
     quantity: fill.quantity || 0,
     grossQuantity: fill.grossQuantity || 0,
     netQuantity: fill.netQuantity || 0,
