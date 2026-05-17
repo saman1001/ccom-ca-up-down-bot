@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { appendPriceHistorySqlite } from "./sqliteStore.js";
 
 const JSONL_NAME = "price-history.jsonl";
 const CSV_NAME = "price-history.csv";
@@ -23,11 +24,13 @@ export function appendPriceHistory(logDir, sample) {
   const jsonlPath = path.join(logDir, JSONL_NAME);
   const last = readLastJsonl(jsonlPath);
   if (last?.hour === row.hour && last?.instrument === row.instrument) {
+    appendPriceHistorySqlite(logDir, row);
     return { written: false, reason: "hour_already_recorded", path: jsonlPath };
   }
 
   fs.appendFileSync(jsonlPath, `${JSON.stringify(row)}\n`);
   appendPriceCsv(path.join(logDir, CSV_NAME), row);
+  appendPriceHistorySqlite(logDir, row);
   return { written: true, path: jsonlPath };
 }
 
