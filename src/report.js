@@ -256,12 +256,15 @@ function ensureDailyRow(rows, day) {
 }
 
 function extractOrders(snapshots) {
+  let sequence = 0;
   const orders = snapshots
     .flatMap((snapshot) => {
       return (snapshot.orderResults || []).map((result) => {
         const alreadyApplied = isFilledAlreadyApplied(result);
         return {
-          at: snapshot.at,
+          at: reportOrderTime(result, snapshot.at),
+          snapshotAt: snapshot.at,
+          sequence: sequence++,
           instrument: snapshot.instrument,
           kind: result.action?.kind || "",
           side: result.action?.order?.side || "",
@@ -278,8 +281,34 @@ function extractOrders(snapshots) {
           orderId: result.fill?.orderId || result.orderDetail?.orderId || result.orderResult?.result?.order_id || ""
         };
       });
+    })
+    .sort((left, right) => {
+      const leftTime = new Date(left.at).getTime();
+      const rightTime = new Date(right.at).getTime();
+      const timeDelta = (Number.isFinite(leftTime) ? leftTime : 0) - (Number.isFinite(rightTime) ? rightTime : 0);
+      return timeDelta || left.sequence - right.sequence;
     });
   return markHistoricalActiveOrders(orders);
+}
+
+function reportOrderTime(result, fallbackAt) {
+  if (result.cancelResult?.ok) return fallbackAt;
+  if (hasReportFill(result)) {
+    return validIso(result.fill?.executedAt) || validIso(result.fill?.orderCreatedAt) || fallbackAt;
+  }
+  return validIso(result.fill?.orderCreatedAt) || validIsoFromExchangeTime(result.orderDetail?.createTime) || fallbackAt;
+}
+
+function validIso(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  return Number.isFinite(date.getTime()) ? date.toISOString() : "";
+}
+
+function validIsoFromExchangeTime(value) {
+  const timestamp = Number(value || 0);
+  if (!Number.isFinite(timestamp) || timestamp <= 0) return "";
+  return validIso(new Date(timestamp).toISOString());
 }
 
 function markHistoricalActiveOrders(orders) {
