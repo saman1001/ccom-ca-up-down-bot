@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { appendOrderEventSqlite } from "./sqliteStore.js";
 
 function orderLedgerPath(logDir) {
   return path.join(logDir, "orders.jsonl");
@@ -18,7 +19,9 @@ export function loadOrderLedger(logDir) {
 
 export function appendOrderEvent(logDir, event) {
   fs.mkdirSync(logDir, { recursive: true });
-  fs.appendFileSync(orderLedgerPath(logDir), `${JSON.stringify({ at: new Date().toISOString(), ...event })}\n`);
+  const row = { at: new Date().toISOString(), ...event };
+  fs.appendFileSync(orderLedgerPath(logDir), `${JSON.stringify(row)}\n`);
+  appendOrderEventSqlite(logDir, row);
 }
 
 export function latestOrderEventByClientOid(events, clientOid) {
