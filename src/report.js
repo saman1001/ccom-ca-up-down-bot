@@ -63,6 +63,7 @@ function buildReportData({ config, batches, dustBank, snapshots }) {
   const closedStats = buildClosedBatchStats(closedBatches, lastPrice);
   const dailySummaries = buildDailySummaries(closedBatches, dustBank);
   const orders = extractOrders(snapshots);
+  const makerStats = buildMakerOrderStats(orders);
   const feeStats = buildFeeStats({ batches, orders, dustBank });
   const feePeriodStats = buildFeePeriodStats({ batches, orders, dustBank });
   const annualizedStats = buildAnnualizedStats({ closedStats, dustBank });
@@ -96,6 +97,7 @@ function buildReportData({ config, batches, dustBank, snapshots }) {
     recentSnapshots,
     recentOrders,
     orders,
+    makerStats,
     feeStats,
     feePeriodStats,
     annualizedStats,
@@ -264,6 +266,8 @@ function extractOrders(snapshots) {
         return {
           at: reportOrderTime(result, snapshot.at),
           snapshotAt: snapshot.at,
+          orderCreatedAt: validIso(result.fill?.orderCreatedAt) || validIsoFromExchangeTime(result.orderDetail?.createTime) || "",
+          executedAt: validIso(result.fill?.executedAt) || validIsoFromExchangeTime(result.orderDetail?.updateTime) || "",
           sequence: sequence++,
           instrument: snapshot.instrument,
           kind: result.action?.kind || "",
@@ -348,6 +352,147 @@ function isFilledAlreadyApplied(result) {
   const incrementalQuantity = Number(result.fill?.quantity || 0);
   const cumulativeQuantity = Number(result.cumulativeFill?.quantity || result.fill?.cumulativeQuantity || 0);
   return ["FILLED", "FULLY_FILLED"].includes(status) && incrementalQuantity <= 0 && cumulativeQuantity > 0;
+}
+
+function buildMakerOrderStats(orders) {
+  const byOrder = new Map();
+  for (const order of orders) {
+    if (String(order.orderType).toUpperCase() !== "LIMIT" || !order.orderId) continue;
+    const row = byOrder.get(order.orderId) || {
+      orderId: order.orderId,
+      kind: order.kind || "",
+      side: order.side || "",
+      createdAt: "",
+      filledAt: "",
+      canceledAt: "",
+      status: "",
+      quantity: 0
+    };
+    row.kind ||= order.kind || "";
+    row.side ||= order.side || "";
+    row.createdAt = earliestIso(row.createdAt, order.orderCreatedAt || order.at);
+    if (isFilledOrderStatus(order.fillStatus) && Number(order.quantity || 0) > 0) {
+      row.filledAt = earliestIso(row.filledAt, order.executedAt || order.at);
+      row.quantity += Number(order.quantity || 0);
+    }
+    if (isCanceledOrderStatus(order.fillStatus)) {
+      row.canceledAt = earliestIso(row.canceledAt, order.at);
+    }
+    row.status = latestMakerOrderStatus(row.status, order.fillStatus);
+    byOrder.set(order.orderId, row);
+  }
+
+  const rows = Array.from(byOrder.values()).map((row) => {
+    const createdMs = timeMs(row.createdAt);
+    const filledMs = timeMs(row.filledAt);
+    const canceledMs = timeMs(row.canceledAt);
+    return {
+      ...row,
+      finalStatus: row.filledAt ? "FILLED" : row.canceledAt ? "CANCELED" : "ACTIVE",
+      fillMs: createdMs && filledMs && filledMs >= createdMs ? filledMs - createdMs : null,
+      cancelMs: createdMs && canceledMs && canceledMs >= createdMs ? canceledMs - createdMs : null
+    };
+  });
+
+  const filled = rows.filter((row) => row.finalStatus === "FILLED");
+  const canceled = rows.filter((row) => row.finalStatus === "CANCELED");
+  const active = rows.filter((row) => row.finalStatus === "ACTIVE");
+  const fillDurations = filled.map((row) => row.fillMs).filter((value) => value !== null);
+  const cancelDurations = canceled.map((row) => row.cancelMs).filter((value) => value !== null);
+
+  return {
+    total: rows.length,
+    filled: filled.length,
+    canceled: canceled.length,
+    active: active.length,
+    fillRatePct: rows.length ? (filled.length / rows.length) * 100 : 0,
+    cancelRatePct: rows.length ? (canceled.length / rows.length) * 100 : 0,
+    avgFillMs: average(fillDurations),
+    medianFillMs: median(fillDurations),
+    maxFillMs: fillDurations.length ? Math.max(...fillDurations) : null,
+    avgCancelMs: average(cancelDurations),
+    groups: makerStatsByGroup(rows),
+    recent: rows
+      .slice()
+      .sort((left, right) => (timeMs(right.createdAt) || 0) - (timeMs(left.createdAt) || 0))
+      .slice(0, 20)
+  };
+}
+
+function makerStatsByGroup(rows) {
+  const groups = new Map();
+  for (const row of rows) {
+    const key = `${row.side || "-"}|${row.kind || "-"}`;
+    const group = groups.get(key) || {
+      side: row.side || "-",
+      kind: row.kind || "-",
+      total: 0,
+      filled: 0,
+      canceled: 0,
+      active: 0,
+      fillDurations: []
+    };
+    group.total += 1;
+    if (row.finalStatus === "FILLED") {
+      group.filled += 1;
+      if (row.fillMs !== null) group.fillDurations.push(row.fillMs);
+    } else if (row.finalStatus === "CANCELED") {
+      group.canceled += 1;
+    } else {
+      group.active += 1;
+    }
+    groups.set(key, group);
+  }
+  return Array.from(groups.values())
+    .map((group) => ({
+      ...group,
+      fillRatePct: group.total ? (group.filled / group.total) * 100 : 0,
+      avgFillMs: average(group.fillDurations)
+    }))
+    .sort((left, right) => right.total - left.total || left.side.localeCompare(right.side) || left.kind.localeCompare(right.kind));
+}
+
+function latestMakerOrderStatus(current, next) {
+  const currentValue = makerStatusRank(current);
+  const nextValue = makerStatusRank(next);
+  return nextValue >= currentValue ? String(next || current || "") : current;
+}
+
+function makerStatusRank(status) {
+  const value = String(status || "").toUpperCase();
+  if (isFilledOrderStatus(value)) return 3;
+  if (isCanceledOrderStatus(value)) return 2;
+  if (value.includes("ACTIVE")) return 1;
+  return 0;
+}
+
+function isFilledOrderStatus(status) {
+  return String(status || "").toUpperCase().includes("FILLED");
+}
+
+function isCanceledOrderStatus(status) {
+  return ["CANCEL_REQUESTED", "CANCELED", "CANCELLED", "ACTIVE_THEN_CANCEL_REQUESTED", "ACTIVE_THEN_CANCELED", "ACTIVE_THEN_CANCELLED"]
+    .includes(String(status || "").toUpperCase());
+}
+
+function earliestIso(left, right) {
+  const leftMs = timeMs(left);
+  const rightMs = timeMs(right);
+  if (!leftMs) return rightMs ? new Date(rightMs).toISOString() : "";
+  if (!rightMs) return new Date(leftMs).toISOString();
+  return new Date(Math.min(leftMs, rightMs)).toISOString();
+}
+
+function timeMs(value) {
+  const timestamp = new Date(value || "").getTime();
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function median(values) {
+  if (!values.length) return null;
+  const sorted = values.slice().sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
 }
 
 function buildFeeStats({ batches, orders, dustBank }) {
@@ -494,6 +639,7 @@ function renderDashboard(data) {
     nextSellPrice,
     recentSnapshots,
     recentOrders,
+    makerStats,
     feeStats,
     feePeriodStats,
     annualizedStats
@@ -589,6 +735,8 @@ function renderDashboard(data) {
       ${metric("Best Batch", bestBatch ? money(bestBatch.realizedPnl) : "-")}
       ${metric("Worst Batch", worstBatch ? money(worstBatch.realizedPnl) : "-")}
       ${metric("Fee Rows", String(feeStats.reduce((sum, row) => sum + row.count, 0)))}
+      ${metric("Maker Fill Rate", pct(makerStats.fillRatePct))}
+      ${metric("Avg Maker Fill", makerStats.avgFillMs === null ? "-" : duration(makerStats.avgFillMs))}
     </div>
 
     <section>
@@ -637,6 +785,47 @@ function renderDashboard(data) {
       <section>
         <h2>Worst Closed Batches</h2>
         <div class="scroll">${closedBatchTable(rankedClosedBatches.slice(-10).reverse())}</div>
+      </section>
+    </div>
+
+    <div class="grid two">
+      <section>
+        <h2>Maker Order Stats</h2>
+        <div class="scroll">${table(["Metric", "Value"], [
+          ["Limit orders", makerStats.total],
+          ["Filled", makerStats.filled],
+          ["Canceled", makerStats.canceled],
+          ["Still active", makerStats.active],
+          ["Fill rate", pct(makerStats.fillRatePct)],
+          ["Cancel rate", pct(makerStats.cancelRatePct)],
+          ["Avg time to fill", makerStats.avgFillMs === null ? "-" : duration(makerStats.avgFillMs)],
+          ["Median time to fill", makerStats.medianFillMs === null ? "-" : duration(makerStats.medianFillMs)],
+          ["Max time to fill", makerStats.maxFillMs === null ? "-" : duration(makerStats.maxFillMs)],
+          ["Avg time to cancel", makerStats.avgCancelMs === null ? "-" : duration(makerStats.avgCancelMs)]
+        ])}</div>
+        <h3>By Kind</h3>
+        <div class="scroll">${table(["Side", "Kind", "Total", "Filled", "Canceled", "Active", "Fill Rate", "Avg Fill"], makerStats.groups.map((row) => [
+          row.side,
+          row.kind,
+          row.total,
+          row.filled,
+          row.canceled,
+          row.active,
+          pct(row.fillRatePct),
+          row.avgFillMs === null ? "-" : duration(row.avgFillMs)
+        ]))}</div>
+      </section>
+      <section>
+        <h2>Recent Maker Orders</h2>
+        <div class="scroll">${table(["Created", "Kind", "Side", "Status", "Wait", "Qty", "Order"], makerStats.recent.map((row) => [
+          row.createdAt || "-",
+          row.kind || "-",
+          row.side || "-",
+          row.finalStatus,
+          row.finalStatus === "FILLED" ? duration(row.fillMs) : row.finalStatus === "CANCELED" ? duration(row.cancelMs) : "-",
+          fmt(row.quantity || 0, 8),
+          row.orderId
+        ]))}</div>
       </section>
     </div>
 
