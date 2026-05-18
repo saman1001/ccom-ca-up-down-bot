@@ -60,6 +60,30 @@ export function latestActiveOrderEventForAction(events, action) {
   return null;
 }
 
+export function latestActiveMakerOrderEvents(events, instrument) {
+  const byClientOid = new Map();
+
+  for (const event of events) {
+    const clientOid = event?.clientOid || event?.action?.order?.client_oid;
+    if (!clientOid) continue;
+    byClientOid.set(clientOid, event);
+  }
+
+  const activeEvents = [];
+  for (const latestEvent of byClientOid.values()) {
+    if (!latestEvent || isTerminalOrderStatus(latestEvent.status)) continue;
+    const action = latestEvent.action;
+    if (!action?.order || action.order.type !== "LIMIT") continue;
+    if (instrument && action.order.instrument_name !== instrument) continue;
+    activeEvents.push({
+      ...latestEvent,
+      firstActiveAt: firstActiveOrderTime(events, latestEvent, action)
+    });
+  }
+
+  return activeEvents;
+}
+
 function firstActiveOrderTime(events, latestEvent, action) {
   let firstAt = latestEvent.at || "";
   for (const event of events) {

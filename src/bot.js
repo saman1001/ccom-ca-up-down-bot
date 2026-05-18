@@ -12,6 +12,7 @@ import {
   appendOrderEvent,
   isTerminalOrderStatus,
   latestActiveOrderEventForAction,
+  latestActiveMakerOrderEvents,
   latestOrderEventByClientOid,
   loadOrderLedger
 } from "./orderLedger.js";
@@ -109,10 +110,46 @@ async function runOnce() {
   console.log(JSON.stringify(result, null, 2));
 }
 
+async function recoverMakerOrdersOnce() {
+  const config = loadConfig();
+  const configProblems = validateConfig(config);
+  if (configProblems.length) {
+    throw new Error(`Invalid bot configuration: ${configProblems.join("; ")}`);
+  }
+  ensureLogDir(config.logDir);
+
+  const client = new CryptoComClient(config);
+  const batches = loadBatches(config.logDir);
+  const dustBank = loadDustBank(config.logDir);
+  const orderEvents = loadOrderLedger(config.logDir);
+  const recoveredMakerOrders = await recoverStaleMakerOrders({
+    client,
+    config,
+    now: new Date().toISOString(),
+    batches,
+    dustBank,
+    orderEvents
+  });
+
+  saveBatches(config.logDir, batches);
+  saveDustBank(config.logDir, dustBank);
+  generateReportSafely(config);
+  console.log(JSON.stringify({ ok: true, recoveredMakerOrders }, null, 2));
+}
+
 async function runBatchStrategy({ client, config, snapshot }) {
   const batches = loadBatches(config.logDir);
   const dustBank = loadDustBank(config.logDir);
   const instrumentRules = await loadInstrumentRules(client, config.instrument);
+  const orderEvents = loadOrderLedger(config.logDir);
+  const recoveredMakerOrders = await recoverStaleMakerOrders({
+    client,
+    config,
+    now: snapshot.at,
+    batches,
+    dustBank,
+    orderEvents
+  });
   const basePlan = buildBatchPlan({
     batches,
     dustBank,
@@ -138,6 +175,7 @@ async function runBatchStrategy({ client, config, snapshot }) {
     ...snapshot,
     strategy: "batches",
     instrumentRules,
+    recoveredMakerOrders,
     openBatchesBefore: batches.filter((batch) => batch.status === "OPEN").length,
     dustBankBefore: dustBank.quantity || 0,
     plan: guardedPlan,
@@ -157,7 +195,6 @@ async function runBatchStrategy({ client, config, snapshot }) {
 
   const updatedBatches = JSON.parse(JSON.stringify(batches));
   const updatedDustBank = JSON.parse(JSON.stringify(dustBank));
-  const orderEvents = loadOrderLedger(config.logDir);
   result.orderResults = [];
   let previousPortfolio = snapshot.portfolio;
 
@@ -415,6 +452,123 @@ async function runBatchStrategy({ client, config, snapshot }) {
   result.openBatchesAfter = updatedBatches.filter((batch) => batch.status === "OPEN").length;
   result.dustBankAfter = updatedDustBank.quantity || 0;
   return result;
+}
+
+async function recoverStaleMakerOrders({ client, config, now, batches, dustBank, orderEvents }) {
+  if (config.orderMode !== "maker") return [];
+
+  const recovered = [];
+  const activeOrders = latestActiveMakerOrderEvents(orderEvents, config.instrument);
+
+  for (const activeOrder of activeOrders) {
+    const action = activeOrder.action;
+    if (!action?.order) continue;
+
+    const orderDetail = await loadOrderDetailByIdentifiers({
+      client,
+      orderId: activeOrder.orderId || "",
+      clientOid: activeOrder.clientOid || action.order.client_oid || ""
+    });
+    if (!hasOrderDetailRow(orderDetail)) continue;
+
+    const orderResult = {
+      result: {
+        order_id: getOrderIdFromDetail(orderDetail) || activeOrder.orderId || "",
+        client_oid: activeOrder.clientOid || action.order.client_oid || ""
+      }
+    };
+    const cumulativeFill = inferFillFromOrderDetail({
+      action,
+      orderResult,
+      orderDetail,
+      fallbackFill: emptyFillForAction(action),
+      config
+    });
+    const previousAppliedFill = latestAppliedFillByClientOid(orderEvents, orderResult.result.client_oid);
+    const fill = incrementalFillFromCumulative({
+      cumulativeFill,
+      previousAppliedFill,
+      action,
+      config
+    });
+    const ledgerStatus = orderLedgerStatusFromFill({ fill, cumulativeFill });
+    const makerFallback = makerFallbackDecision({
+      existingOrder: activeOrder,
+      recoveredFromLedger: true,
+      action,
+      orderDetail,
+      config,
+      now
+    });
+    let cancelResult = null;
+
+    if (makerFallback.shouldCancel) {
+      cancelResult = await cancelOrderSafely({
+        client,
+        orderId: cumulativeFill.orderId || activeOrder.orderId || "",
+        clientOid: orderResult.result.client_oid
+      });
+      appendOrderEvent(config.logDir, {
+        status: cancelResult.ok ? "CANCEL_REQUESTED" : "CANCEL_ERROR",
+        instrument: config.instrument,
+        clientOid: orderResult.result.client_oid,
+        orderId: cumulativeFill.orderId || activeOrder.orderId || "",
+        action: sanitizeLedgerAction(action),
+        reason: makerFallback.reason,
+        cancelResult: sanitizeCancelResult(cancelResult),
+        recoveredStaleMakerOrder: true
+      });
+      orderEvents.push({
+        status: cancelResult.ok ? "CANCEL_REQUESTED" : "CANCEL_ERROR",
+        clientOid: orderResult.result.client_oid,
+        orderId: cumulativeFill.orderId || activeOrder.orderId || ""
+      });
+    }
+
+    const finalLedgerStatus = cancelResult?.ok && !hasFilledQuantity(fill) ? "CANCEL_REQUESTED" : ledgerStatus;
+    appendOrderEvent(config.logDir, {
+      status: finalLedgerStatus,
+      instrument: config.instrument,
+      clientOid: orderResult.result.client_oid,
+      orderId: cumulativeFill.orderId || activeOrder.orderId || "",
+      action: sanitizeLedgerAction(action),
+      orderDetail: sanitizeOrderDetail(orderDetail),
+      fill: sanitizeLedgerFill(fill),
+      recoveredStaleMakerOrder: true
+    });
+    orderEvents.push({
+      status: finalLedgerStatus,
+      clientOid: orderResult.result.client_oid,
+      orderId: cumulativeFill.orderId || activeOrder.orderId || "",
+      fill: sanitizeLedgerFill(fill)
+    });
+
+    if (hasFilledQuantity(fill)) {
+      await applyFilledActionEffects({
+        config,
+        action,
+        fill,
+        orderResult,
+        batches,
+        dustBank,
+        now
+      });
+    }
+
+    recovered.push({
+      clientOid: orderResult.result.client_oid,
+      orderId: cumulativeFill.orderId || activeOrder.orderId || "",
+      kind: action.kind,
+      side: action.order.side,
+      previousStatus: activeOrder.status || "",
+      status: finalLedgerStatus,
+      fill: sanitizeLedgerFill(fill),
+      makerFallback,
+      cancelResult: sanitizeCancelResult(cancelResult)
+    });
+  }
+
+  return recovered;
 }
 
 async function applyFilledActionEffects({ config, action, fill, orderResult, batches, dustBank, now, skipBatchApply = false }) {
@@ -1049,6 +1203,22 @@ function hasFilledQuantity(fill) {
   return Number.isFinite(fill?.quantity) && fill.quantity > 0 && Number.isFinite(fill?.price) && fill.price > 0;
 }
 
+function emptyFillForAction(action) {
+  return {
+    source: "none",
+    side: action.order?.side || "",
+    quantity: 0,
+    grossQuantity: 0,
+    netQuantity: 0,
+    price: 0,
+    quoteValue: 0,
+    fee: null,
+    pending: true,
+    baseDelta: 0,
+    quoteDelta: 0
+  };
+}
+
 function makerFallbackDecision({ existingOrder, recoveredFromLedger, action, orderDetail, config, now }) {
   if (!recoveredFromLedger || config.orderMode !== "maker" || action.order?.type !== "LIMIT") {
     return { shouldCancel: false, reason: "" };
@@ -1238,6 +1408,8 @@ try {
     await watch();
   } else if (command === "check") {
     await checkConfig();
+  } else if (command === "recover-maker-orders") {
+    await recoverMakerOrdersOnce();
   } else {
     await runOnce();
   }

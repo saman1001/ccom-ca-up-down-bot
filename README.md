@@ -379,6 +379,7 @@ node src/health.js .env.cro-usd .env.btc-usd
 node src/backup-logs.js
 node src/rotate-logs.js
 node src/taxExport.js --year=2026
+node src/bot.js recover-maker-orders
 ```
 
 Available npm scripts:
@@ -388,7 +389,10 @@ npm run health
 npm run backup:logs
 npm run rotate:logs
 npm run report
+npm run recover:maker
 ```
+
+`recover-maker-orders` checks active maker orders from the local order ledger against Crypto.com, records fills or terminal statuses, cancels stale active maker orders when the configured timeout says so, and regenerates the report without creating a new planned buy or sell.
 
 Typical systemd commands on the VPS:
 

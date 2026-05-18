@@ -11,6 +11,7 @@
     "report": "node src/report.js",
     "health": "node src/health.js",
     "reconcile": "node src/reconcile.js",
+    "recover:maker": "node src/bot.js recover-maker-orders",
     "sqlite:migrate": "node src/migrate-sqlite.js",
     "tax:export": "node src/taxExport.js",
     "backup:logs": "node src/backup-logs.js",

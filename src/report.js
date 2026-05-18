@@ -19,7 +19,8 @@ export function generateReport(options = {}) {
   const batches = readJson(path.join(logDir, "batches.json"), []);
   const dustBank = readJson(path.join(logDir, "dust-bank.json"), { quantity: 0, entries: [], sells: [] });
   const snapshots = readJsonl(path.join(logDir, "snapshots.jsonl"));
-  const data = buildReportData({ config, batches, dustBank, snapshots });
+  const orderEvents = readJsonl(path.join(logDir, "orders.jsonl"));
+  const data = buildReportData({ config, batches, dustBank, snapshots, orderEvents });
 
   fs.mkdirSync(reportDir, { recursive: true });
   fs.writeFileSync(reportPath, renderDashboard(data), "utf8");
@@ -43,7 +44,7 @@ export function generateReport(options = {}) {
   return result;
 }
 
-function buildReportData({ config, batches, dustBank, snapshots }) {
+function buildReportData({ config, batches, dustBank, snapshots, orderEvents = [] }) {
   const openBatches = batches.filter((batch) => batch.status === "OPEN");
   const closedBatches = batches.filter((batch) => batch.status === "CLOSED");
   const latest = snapshots.at(-1) || null;
@@ -62,7 +63,7 @@ function buildReportData({ config, batches, dustBank, snapshots }) {
   const nextSellPrice = nextOpenBatchSellPrice(openBatches, config.takeProfitRisePct);
   const closedStats = buildClosedBatchStats(closedBatches, lastPrice);
   const dailySummaries = buildDailySummaries(closedBatches, dustBank);
-  const orders = extractOrders(snapshots);
+  const orders = extractOrders({ snapshots, orderEvents });
   const makerStats = buildMakerOrderStats(orders);
   const feeStats = buildFeeStats({ batches, orders, dustBank });
   const feePeriodStats = buildFeePeriodStats({ batches, orders, dustBank });
@@ -257,7 +258,52 @@ function ensureDailyRow(rows, day) {
   return rows.get(day);
 }
 
-function extractOrders(snapshots) {
+function extractOrders({ snapshots, orderEvents }) {
+  if (orderEvents.length) return extractOrdersFromLedger(orderEvents);
+  return extractOrdersFromSnapshots(snapshots);
+}
+
+function extractOrdersFromLedger(orderEvents) {
+  let sequence = 0;
+  const orders = orderEvents
+    .filter((event) => event?.action?.order && (event.fill || isReportableLedgerStatus(event.status)))
+    .map((event) => {
+      const fill = event.fill || {};
+      const orderDetail = event.orderDetail || {};
+      const action = event.action || {};
+      const order = action.order || {};
+      return {
+        at: reportOrderEventTime(event),
+        snapshotAt: "",
+        orderCreatedAt: validIso(fill.orderCreatedAt) || validIsoFromExchangeTime(orderDetail.createTime) || "",
+        executedAt: validIso(fill.executedAt) || validIsoFromExchangeTime(orderDetail.updateTime) || "",
+        sequence: sequence++,
+        instrument: event.instrument || order.instrument_name || "",
+        kind: action.kind || "",
+        side: order.side || "",
+        orderType: order.type || "",
+        limitPrice: Number(order.price ?? 0),
+        fillStatus: orderStatusForLedgerEvent(event),
+        batchId: action.batchId || "",
+        quantity: Number(fill.quantity ?? 0),
+        price: Number(fill.price ?? 0),
+        baseDelta: Number(fill.baseDelta ?? 0),
+        quoteDelta: Number(fill.quoteDelta ?? 0),
+        fee: fill.fee || extractFee({ fill, orderDetail }),
+        skipped: false,
+        orderId: fill.orderId || orderDetail.orderId || event.orderId || ""
+      };
+    })
+    .sort((left, right) => {
+      const leftTime = new Date(left.at).getTime();
+      const rightTime = new Date(right.at).getTime();
+      const timeDelta = (Number.isFinite(leftTime) ? leftTime : 0) - (Number.isFinite(rightTime) ? rightTime : 0);
+      return timeDelta || left.sequence - right.sequence;
+    });
+  return markHistoricalActiveOrders(orders);
+}
+
+function extractOrdersFromSnapshots(snapshots) {
   let sequence = 0;
   const orders = snapshots
     .flatMap((snapshot) => {
@@ -293,6 +339,39 @@ function extractOrders(snapshots) {
       return timeDelta || left.sequence - right.sequence;
     });
   return markHistoricalActiveOrders(orders);
+}
+
+function isReportableLedgerStatus(status) {
+  return [
+    "FILLED",
+    "FILLED_ALREADY_APPLIED",
+    "PARTIAL_FILL",
+    "NO_FILL",
+    "CANCEL_REQUESTED",
+    "CANCEL_ERROR",
+    "CANCELED",
+    "CANCELLED",
+    "REJECTED",
+    "EXPIRED",
+    "FAILED"
+  ].includes(String(status || "").toUpperCase());
+}
+
+function reportOrderEventTime(event) {
+  if (hasLedgerFill(event)) {
+    return validIso(event.fill?.executedAt) || validIso(event.fill?.orderCreatedAt) || event.at;
+  }
+  return validIso(event.fill?.orderCreatedAt) || validIsoFromExchangeTime(event.orderDetail?.createTime) || event.at;
+}
+
+function hasLedgerFill(event) {
+  return Number(event?.fill?.quantity || 0) > 0 && Number(event?.fill?.price || 0) > 0;
+}
+
+function orderStatusForLedgerEvent(event) {
+  if (event.status === "NO_FILL" && String(event.fill?.status || "").toUpperCase() === "ACTIVE") return "ACTIVE";
+  if (event.fill?.status && event.status !== "CANCEL_REQUESTED") return event.fill.status;
+  return event.status || event.fill?.status || "";
 }
 
 function reportOrderTime(result, fallbackAt) {
