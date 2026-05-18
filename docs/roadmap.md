@@ -39,6 +39,7 @@
 - [x] Osetrit partial fill a oneskorene fillnutie orderu.
 - [x] Pridat repair/reconcile prikaz, ktory spatne zosuladi `batches.json` s ulozenymi ordermi a `private/get-order-detail`.
 - [x] V reportoch oddelit poplatky, dust a cisty zisk podla skutocnych fillov z burzy.
+- [ ] Podporit zaporne maker fee / rebate: ukladat fee so znamienkom, v reporte oddelit poplatky a rebate, a zapocitat rebate do P/L, priemerov a danoveho exportu.
 
 ### Bezpecnostne poistky
 
@@ -79,6 +80,7 @@
 - [x] Pridat denny suhrn zisku/straty.
 - [x] Pridat export do CSV.
 - [x] Pridat statistiku poplatkov z fee/trade dat, ked su dostupne v ulozenych logoch.
+- [ ] Pridat signed fee statistiky: kladne fee zobrazovat ako naklad, zaporne maker fee ako rebate/odmenu.
 - [x] Pridat priemerny cas drzania davky.
 - [x] Pridat prehlad najziskovejsich a najhorsich davok.
 - [x] Pridat spolocny index reportov, ktory odkazuje na dashboardy vsetkych parov.
@@ -132,7 +134,6 @@
 - [ ] Pauza v obchodovani pri prudkom raste.
 - [ ] Rebalancing medzi quote menou a base assetom.
 - [ ] Optimalizacia strategie nad historickymi datami pre vyskum a clanok.
-- [ ] Premysliet swing/grid maker bota, ktory by vedel pracovat s limit ordermi na oboch stranach order booku, napr. kupovat makerom na bid strane a postupne ponukat predaje makerom na ask strane.
 
 ## Webove rozhranie
 
