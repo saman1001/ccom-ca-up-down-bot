@@ -1,9 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
-
-const execFileAsync = promisify(execFile);
+import { spawn } from "node:child_process";
 
 function notificationLogPath(logDir) {
   return path.join(logDir, "notifications.jsonl");
@@ -231,9 +228,47 @@ async function sendEmail(config, event) {
     formatEmailMessage(event)
   ].join("\n");
 
-  await execFileAsync(config.sendmailPath || "/usr/sbin/sendmail", ["-t"], {
-    input: email,
-    timeout: 15000
+  await sendmailWithInput(config.sendmailPath || "/usr/sbin/sendmail", email);
+}
+
+function sendmailWithInput(sendmailPath, email) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(sendmailPath, ["-t"], {
+      stdio: ["pipe", "pipe", "pipe"]
+    });
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+    const timeout = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      child.kill("SIGTERM");
+      reject(new Error("sendmail timed out after 15000ms"));
+    }, 15000);
+
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk.toString();
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk.toString();
+    });
+    child.on("error", (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      reject(error);
+    });
+    child.on("close", (code, signal) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      if (code === 0) {
+        resolve();
+        return;
+      }
+      reject(new Error(`sendmail failed with code ${code ?? "null"}${signal ? ` signal ${signal}` : ""}: ${trimMessage(stderr || stdout || "no output", 500)}`));
+    });
+    child.stdin.end(email);
   });
 }
 
