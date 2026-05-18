@@ -132,6 +132,7 @@
 - [ ] Pauza v obchodovani pri prudkom raste.
 - [ ] Rebalancing medzi quote menou a base assetom.
 - [ ] Optimalizacia strategie nad historickymi datami pre vyskum a clanok.
+- [ ] Premysliet swing/grid maker bota, ktory by vedel pracovat s limit ordermi na oboch stranach order booku, napr. kupovat makerom na bid strane a postupne ponukat predaje makerom na ask strane.
 
 ## Webove rozhranie
 
