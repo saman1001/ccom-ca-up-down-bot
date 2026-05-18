@@ -132,7 +132,7 @@ Batch behavior:
 - `BASE_BUY_COOLDOWN_MINUTES` prevents extra base buys after service restarts,
 - `MAX_OPEN_BATCHES` can stop new base buys when too many batches are already open; `0` means unlimited,
 - `DAILY_BASE_BUY_LIMIT` can stop new base buys after too many base buys in the current UTC day; `0` means unlimited,
-- `FORCE_BASE_BUY_WEEKLY_LIMIT` can force at least N base buys per UTC week; `0` means disabled,
+- `FORCE_BASE_BUY_WEEKLY_LIMIT` can force at least N base buys in the last rolling 7 days; `0` means disabled,
 - every batch is tracked separately,
 - if price drops by `AVERAGE_DOWN_DROP_PCT` below a batch average, the bot can buy `AVERAGE_DOWN_QUANTITY` more into that batch,
 - a batch can grow only up to `MAX_BATCH_QUANTITY`,
@@ -153,7 +153,7 @@ AVERAGE_DOWN_QUANTITY=40
 # 0 means unlimited. 6 means at most 6 new base batches per UTC day.
 DAILY_BASE_BUY_LIMIT=6
 
-# 0 means disabled. 1 means at least 1 base batch per UTC week, even if normal base-buy limits would skip it.
+# 0 means disabled. 1 means at least 1 base batch in the last rolling 7 days, even if normal base-buy limits would skip it.
 FORCE_BASE_BUY_WEEKLY_LIMIT=1
 
 # 0 means disabled. 25 keeps at least 25 USD available by skipping BUY actions.
@@ -163,7 +163,7 @@ MIN_QUOTE_BALANCE=25
 MAX_SUSPICIOUS_PRICE_MOVE_PCT=25
 ```
 
-`BATCH_QUANTITY` controls new base batches. `AVERAGE_DOWN_QUANTITY` controls buys into existing batches after a price drop; when it is omitted, it defaults to `BATCH_QUANTITY`. `MAX_OPEN_BATCHES` and `DAILY_BASE_BUY_LIMIT` only block normal new `BASE_BUY` actions. `FORCE_BASE_BUY_WEEKLY_LIMIT` has priority over normal base-buy cooldown, daily limit, and max open batch limit. `MIN_QUOTE_BALANCE` and available quote balance still protect forced buys. `MIN_QUOTE_BALANCE` does not block sells.
+`BATCH_QUANTITY` controls new base batches. `AVERAGE_DOWN_QUANTITY` controls buys into existing batches after a price drop; when it is omitted, it defaults to `BATCH_QUANTITY`. `MAX_OPEN_BATCHES` and `DAILY_BASE_BUY_LIMIT` only block normal new `BASE_BUY` actions. `FORCE_BASE_BUY_WEEKLY_LIMIT` has priority over normal base-buy cooldown, daily limit, and max open batch limit, but it looks at the last rolling 7 days instead of resetting every Monday. `MIN_QUOTE_BALANCE` and available quote balance still protect forced buys. `MIN_QUOTE_BALANCE` does not block sells.
 
 Older `STRATEGY=updown` still exists as a simple starting strategy:
 

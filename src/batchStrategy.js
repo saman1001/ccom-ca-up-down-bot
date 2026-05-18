@@ -118,14 +118,14 @@ export function buildBatchPlan({ batches, dustBank, instrumentRules, price, conf
   const dailyBaseBuyLimit = Math.max(0, Number(config.dailyBaseBuyLimit || 0));
   const forceBaseBuyWeeklyLimit = Math.max(0, Number(config.forceBaseBuyWeeklyLimit || 0));
   const baseBuysToday = countBaseBuysSince(batches, startOfUtcDayMs(nowMs));
-  const baseBuysThisWeek = countBaseBuysSince(batches, startOfUtcWeekMs(nowMs));
+  const baseBuysInRollingWeek = countBaseBuysSince(batches, rollingWeekStartMs(nowMs));
 
-  if (forceBaseBuyWeeklyLimit > 0 && baseBuysThisWeek < forceBaseBuyWeeklyLimit) {
+  if (forceBaseBuyWeeklyLimit > 0 && baseBuysInRollingWeek < forceBaseBuyWeeklyLimit) {
     actions.push(buildBaseBuyAction({
       config,
       batchQuantity,
       kind: "FORCE_BASE_BUY",
-      reason: `Forced weekly base buy ${baseBuysThisWeek + 1}/${forceBaseBuyWeeklyLimit}.`
+      reason: `Forced rolling-week base buy ${baseBuysInRollingWeek + 1}/${forceBaseBuyWeeklyLimit}.`
     }));
   } else if (config.buyBaseBatchEveryRun) {
     if (maxOpenBatches > 0 && openBatchCount >= maxOpenBatches) {
@@ -223,11 +223,8 @@ function startOfUtcDayMs(nowMs) {
   return Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
 }
 
-function startOfUtcWeekMs(nowMs) {
-  const now = new Date(nowMs);
-  if (!Number.isFinite(now.getTime())) return 0;
-  const day = now.getUTCDay() || 7;
-  return Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - day + 1);
+function rollingWeekStartMs(nowMs) {
+  return Number.isFinite(nowMs) ? nowMs - 7 * 24 * 60 * 60 * 1000 : 0;
 }
 
 function isBaseBuyReason(reason) {
