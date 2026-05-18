@@ -460,7 +460,7 @@ function shouldPlaceMakerFollowUpOrder({ config, action, plannedOrder, recovered
   if (!plannedOrder?.client_oid || plannedOrder.client_oid === action.order?.client_oid) return false;
   if (Boolean(cancelResult?.ok) && !hasFilledQuantity(fill)) return true;
   if (isExchangeTerminalNoFillStatus(String(ledgerStatus || "").toUpperCase())) return true;
-  return ["BASE_BUY", "FORCE_BASE_BUY"].includes(action.kind) && hasFilledQuantity(fill);
+  return action.kind === "BASE_BUY" && hasFilledQuantity(fill);
 }
 
 async function placeMakerFollowUpOrder({
