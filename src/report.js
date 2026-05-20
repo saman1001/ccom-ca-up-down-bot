@@ -369,6 +369,7 @@ function hasLedgerFill(event) {
 }
 
 function orderStatusForLedgerEvent(event) {
+  if (event.status === "FILLED_ALREADY_APPLIED") return "FILLED_ALREADY_APPLIED";
   if (event.status === "NO_FILL" && String(event.fill?.status || "").toUpperCase() === "ACTIVE") return "ACTIVE";
   if (event.fill?.status && event.status !== "CANCEL_REQUESTED") return event.fill.status;
   return event.status || event.fill?.status || "";

@@ -345,7 +345,8 @@ async function runBatchStrategy({ client, config, snapshot }) {
       orderEvents.push({
         status: cancelResult.ok ? "CANCEL_REQUESTED" : "CANCEL_ERROR",
         clientOid: order.client_oid,
-        orderId: cumulativeFill.orderId || getOrderId(orderResult)
+        orderId: cumulativeFill.orderId || getOrderId(orderResult),
+        action: sanitizeLedgerAction(actionWithClientOid)
       });
     }
 
@@ -364,6 +365,7 @@ async function runBatchStrategy({ client, config, snapshot }) {
       status: finalLedgerStatus,
       clientOid: order.client_oid,
       orderId: cumulativeFill.orderId || fill.orderId || getOrderId(orderResult),
+      action: sanitizeLedgerAction(actionWithClientOid),
       fill: sanitizeLedgerFill(fill)
     });
 
@@ -521,7 +523,8 @@ async function recoverStaleMakerOrders({ client, config, now, batches, dustBank,
       orderEvents.push({
         status: cancelResult.ok ? "CANCEL_REQUESTED" : "CANCEL_ERROR",
         clientOid: orderResult.result.client_oid,
-        orderId: cumulativeFill.orderId || activeOrder.orderId || ""
+        orderId: cumulativeFill.orderId || activeOrder.orderId || "",
+        action: sanitizeLedgerAction(action)
       });
     }
 
@@ -540,6 +543,7 @@ async function recoverStaleMakerOrders({ client, config, now, batches, dustBank,
       status: finalLedgerStatus,
       clientOid: orderResult.result.client_oid,
       orderId: cumulativeFill.orderId || activeOrder.orderId || "",
+      action: sanitizeLedgerAction(action),
       fill: sanitizeLedgerFill(fill)
     });
 
@@ -739,6 +743,7 @@ async function placeMakerFollowUpOrder({
     status: ledgerStatus,
     clientOid: plannedOrder.client_oid,
     orderId: cumulativeFill.orderId || fill.orderId || getOrderId(orderResult),
+    action: sanitizeLedgerAction(actionWithClientOid),
     fill: sanitizeLedgerFill(fill)
   });
 
