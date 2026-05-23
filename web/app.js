@@ -33,11 +33,38 @@ function render() {
       ${sidebar()}
       <main class="main">
         ${topbar()}
+        ${mobilePairBar()}
         <section class="page">${page()}</section>
+        ${mobileBottomNav()}
       </main>
     </div>
   `;
   bindEvents();
+}
+
+function mobilePairBar() {
+  return `
+    <div class="mobile-pair-bar">
+      ${state.data.pairs.map((pair) => `
+        <button data-view="pair" data-pair="${pair.instrument}" class="${state.pair === pair.instrument ? "active" : ""}">
+          <span class="dot ${pair.status === "running" ? "" : pair.status}"></span>
+          <span>${pair.instrument.replace("_", " / ")}</span>
+          <strong>${money(pair.lastPrice, priceDigits(pair))}</strong>
+        </button>
+      `).join("")}
+    </div>
+  `;
+}
+
+function mobileBottomNav() {
+  return `
+    <nav class="mobile-bottom-nav">
+      <button data-view="overview" class="${state.view === "overview" ? "active" : ""}"><span>⌂</span>Prehlad</button>
+      <button data-view="pair" data-pair="${state.pair}" class="${state.view === "pair" ? "active" : ""}"><span>◇</span>Par</button>
+      <button data-view="alerts" class="${state.view === "alerts" ? "active" : ""}"><span>!</span>Alerts</button>
+      <button data-view="settings" class="${state.view === "settings" ? "active" : ""}"><span>⚙</span>Settings</button>
+    </nav>
+  `;
 }
 
 function sidebar() {
@@ -167,7 +194,7 @@ function pairCard(pair) {
         <div class="pair-title">${pair.instrument.replace("_", " / ")}</div>
         <span class="pill ${pair.status}">${statusLabel(pair.status)}</span>
       </div>
-      <div class="grid-2" style="align-items:center">
+      <div class="pair-card-main">
         <div>
           <div class="kpi-label">Last price</div>
           <div class="kpi-value">${money(pair.lastPrice, priceDigits(pair))}</div>
@@ -194,7 +221,7 @@ function pairDetail(pair) {
   const rows = state.batchTab === "closed" ? closedBatchesTable(pair.closedBatchRows) : openBatchesTable(pair.openBatchRows, pair);
   return `
     ${pair.alerts.length ? pair.alerts.map((alert) => banner(alert.level, alert.title, alert.text)).join("") : banner("info", "Bez vaznych upozorneni", "Posledne dostupne data pre tento par su nacitane.")}
-    <div class="kpi-row">
+    <div class="kpi-row pair-hero">
       ${kpi(`${pair.instrument} last price`, money(pair.lastPrice, priceDigits(pair)), `Next sell at ${pair.nextSellPrice ? money(pair.nextSellPrice, priceDigits(pair)) : "-"} · Avg open ${money(pair.avgOpenPrice, priceDigits(pair))}`)}
       ${kpi("Realized incl. dust", signedMoney(pair.realizedInclDust), `Cash ${signedMoney(pair.realizedCash)}`, pair.realizedInclDust)}
       ${kpi("Unrealized P/L", signedMoney(pair.unrealized), `${pair.openBatches} otvorenych davok`, pair.unrealized)}
