@@ -460,9 +460,9 @@ function extractOrdersFromLedger(orderEvents) {
 
 function buildMakerOrderStats(orders) {
   const makerOrders = latestOrderStates(orders).filter((order) => String(order.orderType).toUpperCase() === "LIMIT");
-  const filled = makerOrders.filter((order) => String(order.fillStatus).toUpperCase().includes("FILLED")).length;
-  const canceled = makerOrders.filter((order) => String(order.fillStatus).toUpperCase().includes("CANCEL")).length;
-  const active = makerOrders.filter((order) => String(order.fillStatus).toUpperCase().includes("ACTIVE")).length;
+  const filled = makerOrders.filter((order) => orderStatusCategory(order.fillStatus) === "filled").length;
+  const canceled = makerOrders.filter((order) => orderStatusCategory(order.fillStatus) === "canceled").length;
+  const active = makerOrders.filter((order) => orderStatusCategory(order.fillStatus) === "active").length;
   const other = Math.max(0, makerOrders.length - filled - canceled - active);
   return {
     total: makerOrders.length,
@@ -473,6 +473,14 @@ function buildMakerOrderStats(orders) {
     fillRatePct: makerOrders.length ? (filled / makerOrders.length) * 100 : 0,
     cancelRatePct: makerOrders.length ? (canceled / makerOrders.length) * 100 : 0
   };
+}
+
+function orderStatusCategory(status) {
+  const value = String(status || "").toUpperCase();
+  if (["FILLED", "PARTIALLY_FILLED"].includes(value)) return "filled";
+  if (value === "ACTIVE") return "active";
+  if (value.includes("CANCEL") || value === "REJECTED" || value === "EXPIRED") return "canceled";
+  return "other";
 }
 
 function latestOrderStates(orders) {

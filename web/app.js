@@ -701,8 +701,8 @@ function serviceLabel(value) {
 
 function statusClass(status) {
   const value = String(status || "").toLowerCase();
-  if (value.includes("fill")) return "filled";
-  if (value.includes("active")) return "active";
+  if (value === "filled" || value === "partially_filled") return "filled";
+  if (value === "active") return "active";
   if (value.includes("cancel") || value.includes("fail") || value.includes("reject")) return "canceled";
   return "";
 }
