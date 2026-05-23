@@ -186,7 +186,7 @@ function pairDetail(pair) {
   return `
     ${pair.alerts.length ? pair.alerts.map((alert) => banner(alert.level, alert.title, alert.text)).join("") : banner("info", "Bez vaznych upozorneni", "Posledne dostupne data pre tento par su nacitane.")}
     <div class="kpi-row">
-      ${kpi(`${pair.instrument} last price`, money(pair.lastPrice, priceDigits(pair)), `Avg open ${money(pair.avgOpenPrice, priceDigits(pair))}`)}
+      ${kpi(`${pair.instrument} last price`, money(pair.lastPrice, priceDigits(pair)), `Next sell at ${pair.nextSellPrice ? money(pair.nextSellPrice, priceDigits(pair)) : "-"} · Avg open ${money(pair.avgOpenPrice, priceDigits(pair))}`)}
       ${kpi("Realized incl. dust", signedMoney(pair.realizedInclDust), `Cash ${signedMoney(pair.realizedCash)}`, pair.realizedInclDust)}
       ${kpi("Unrealized P/L", signedMoney(pair.unrealized), `${pair.openBatches} otvorenych davok`, pair.unrealized)}
       ${kpi("Quote balance", money(pair.portfolio?.quoteTotal || 0), pair.quoteAsset)}
@@ -194,7 +194,10 @@ function pairDetail(pair) {
     </div>
 
     <div class="card">
-      <div class="card-head"><h2>Price history</h2><span class="sub">${pair.recentSnapshots.length} bodov</span></div>
+      <div class="card-head">
+        <h2>Price · buys and sells</h2><span class="sub">${pair.instrument} · ${pair.recentSnapshots.length} ticks</span>
+        <div class="head-right chart-legend"><span class="legend-dot price"></span> price <span class="legend-triangle buy"></span> BUY <span class="legend-triangle sell"></span> SELL</div>
+      </div>
       <div class="card-body">${priceChart(pair)}</div>
     </div>
 
@@ -442,10 +445,24 @@ function priceChart(pair) {
     const yy = pad.t + plotH * ratio;
     return `<line x1="${pad.l}" x2="${w - pad.r}" y1="${yy}" y2="${yy}" stroke="#edf0f2"/><text x="${pad.l - 8}" y="${yy + 4}" text-anchor="end" font-size="11" fill="#7b8494">${money(value, priceDigits(pair))}</text>`;
   }).join("");
-  return `<svg class="chart" viewBox="0 0 ${w} ${h}" role="img" aria-label="Price chart">
+  return `<svg class="chart" viewBox="0 0 ${w} ${h}" role="img" aria-label="Price buys and sells chart">
     ${ticks}
     <polyline points="${poly}" fill="none" stroke="#131618" stroke-width="2"/>
-    ${points.map((point, i) => point.orderCount ? `<circle cx="${x(i)}" cy="${y(point.price)}" r="${Math.min(7, 3 + point.orderCount)}" fill="#23845a" opacity=".85"><title>${point.orderCount} order(s)</title></circle>` : "").join("")}
+    ${points.map((point, i) => {
+      const px = x(i);
+      const py = y(point.price);
+      const marks = [];
+      if (point.buyCount) {
+        marks.push(`<polygon points="${px},${py + 17} ${px - 6},${py + 8} ${px + 6},${py + 8}" fill="#23845a"><title>${point.buyCount} BUY</title></polygon>`);
+        if (point.buyCount > 1) marks.push(`<text x="${px}" y="${py + 31}" text-anchor="middle" font-size="10" fill="#23845a" font-weight="700">${point.buyCount}</text>`);
+      }
+      if (point.sellCount) {
+        marks.push(`<polygon points="${px},${py - 17} ${px - 6},${py - 8} ${px + 6},${py - 8}" fill="#bb2d22"><title>${point.sellCount} SELL</title></polygon>`);
+        if (point.sellCount > 1) marks.push(`<text x="${px}" y="${py - 20}" text-anchor="middle" font-size="10" fill="#bb2d22" font-weight="700">${point.sellCount}</text>`);
+      }
+      return marks.join("");
+    }).join("")}
+    <circle cx="${x(points.length - 1)}" cy="${y(points.at(-1).price)}" r="3.5" fill="#131618"/>
     <line x1="${pad.l}" x2="${w - pad.r}" y1="${h - pad.b}" y2="${h - pad.b}" stroke="#d4d7dc"/>
     <text x="${pad.l}" y="${h - 12}" font-size="11" fill="#7b8494">${shortDate(points[0].at)}</text>
     <text x="${w - pad.r}" y="${h - 12}" text-anchor="end" font-size="11" fill="#7b8494">${shortDate(points.at(-1).at)}</text>

@@ -146,7 +146,7 @@ function buildPairPayload(config) {
     makerStats: reportData.makerStats,
     avgHoldingDays: averageHoldingDays(reportData.closedStats),
     todayRealizedPnl: todayRealizedPnl(reportData.dailySummaries),
-    recentSnapshots: reportData.recentSnapshots.map(toChartPoint),
+    recentSnapshots: buildChartPoints(reportData.recentSnapshots, reportData.recentOrders),
     openBatchRows: reportData.openBatches.slice(0, 50).map((batch) => openBatchRow(batch, reportData.lastPrice, config)),
     closedBatchRows: reportData.closedStats.slice(-50).reverse().map(closedBatchRow),
     recentOrders: reportData.recentOrders.slice(0, 25).map(orderRow),
@@ -496,12 +496,33 @@ function orderRow(order) {
   };
 }
 
-function toChartPoint(snapshot) {
-  return {
-    at: snapshot.at,
-    price: snapshot.price,
-    orderCount: Array.isArray(snapshot.orderResults) ? snapshot.orderResults.length : 0
-  };
+function buildChartPoints(snapshots, orders) {
+  const ordersByHour = new Map();
+  for (const order of orders || []) {
+    const hour = hourKey(order.at);
+    if (!hour) continue;
+    const row = ordersByHour.get(hour) || { buy: 0, sell: 0 };
+    if (order.side === "BUY") row.buy += 1;
+    if (order.side === "SELL") row.sell += 1;
+    ordersByHour.set(hour, row);
+  }
+
+  return snapshots.map((snapshot) => {
+    const row = ordersByHour.get(hourKey(snapshot.at)) || { buy: 0, sell: 0 };
+    return {
+      at: snapshot.at,
+      price: snapshot.price,
+      buyCount: row.buy,
+      sellCount: row.sell,
+      orderCount: row.buy + row.sell
+    };
+  });
+}
+
+function hourKey(value) {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return "";
+  return date.toISOString().slice(0, 13);
 }
 
 function pickSafeSettings(env, defaults) {
