@@ -246,12 +246,12 @@ function loginPage({ error }) {
     button:disabled, input:disabled { opacity: .6; cursor: not-allowed; }
     .msg { color: var(--danger); font-size: 13px; margin: 0 0 14px; }
     .mark { width: 34px; height: 34px; border-radius: 9px; background: #fff; color: #081022; display: grid; place-items: center; font: 700 13px ui-monospace, monospace; margin-bottom: 14px; }
-    .hero-mini { width: 100%; aspect-ratio: 16 / 7; border-radius: 10px; background: url("/login-hero.png") center / cover; border: 1px solid var(--line); margin-bottom: 18px; box-shadow: inset 0 0 0 1px rgba(255,255,255,.04); }
+    .hero-mini { display: block; width: 100%; height: auto; border-radius: 10px; border: 1px solid var(--line); margin-bottom: 18px; box-shadow: inset 0 0 0 1px rgba(255,255,255,.04); }
   </style>
 </head>
 <body>
   <main>
-    <div class="hero-mini" aria-hidden="true"></div>
+    <img class="hero-mini" src="/login-hero.png" alt="CCOM Batch Bot CA Up/Down">
     <div class="mark">BB</div>
     <h1>Batch Bot</h1>
     <p>Privatny read-only dashboard pre Crypto.com bota.</p>
