@@ -141,16 +141,25 @@
 Toto robit az po doplneni spolahliveho order ledgeru, presneho fill reconciliation a zakladnych bezpecnostnych poistiek.
 
 - [x] Pripravit SQLite databazu ako jednoduchy medzikrok medzi JSON logmi a web UI.
+- [x] Pridat jednoduchy private web server viazany defaultne na `127.0.0.1`.
+- [x] Pridat jednoduche prihlasovanie cez lokalny `.env.web` bez commitovania hesla.
+- [x] Pridat prvu read-only web appku bez Reactu a bez runtime zavislosti.
+- [x] Zobrazit oba pary CRO/BTC v spolocnom prehlade.
 - [ ] Navrhnut databazovu vrstvu tak, aby sa dala neskor prepnut zo SQLite na PostgreSQL.
 - [ ] Pre vacsie web UI/API zvazit PostgreSQL ako cielovu produkcnu databazu.
-- [ ] Vytvorit lokalnu web stranku/dashboard pre bota.
-- [ ] Zobrazit aktualne portfolio, zostatky a hodnotu uctu.
-- [ ] Zobrazit otvorene a uzavrete davky pre kazdy par samostatne.
-- [ ] Zobrazit graf ceny, nakupov a predajov.
-- [ ] Zobrazit realizovany a nerealizovany P/L.
-- [ ] Zobrazit posledne ordery a API chyby.
-- [ ] Umoznit menit nastavenia strategie cez web UI.
+- [x] Vytvorit lokalnu web stranku/dashboard pre bota.
+- [x] Zobrazit aktualne portfolio, zostatky a hodnotu uctu zo snapshotov.
+- [x] Zobrazit otvorene a uzavrete davky pre kazdy par samostatne.
+- [x] Zobrazit graf ceny z poslednych snapshotov.
+- [x] Zobrazit realizovany a nerealizovany P/L.
+- [x] Zobrazit posledne ordery a zakladne health upozornenia.
+- [x] Pridat jednoduche prihlasovanie alebo aspon obmedzenie pristupu.
+- [x] Nasadit web UI tak, aby nebolo verejne otvorene bez ochrany: prva verzia pocita s `127.0.0.1` a SSH tunnelom.
+- [ ] Pridat detailne chybove logy bez zverejnenia citlivych udajov.
+- [ ] Pridat realne buy/sell markery do weboveho grafu, nie iba pocet orderov pri snapshote.
+- [ ] Pridat export/stiahnutie existujucich HTML/CSV reportov az po kontrole ochrany pristupu.
+- [ ] Umoznit menit nastavenia strategie cez web UI iba pre whitelist bezpecnych poli.
+- [ ] Pred ulozenim nastaveni zobrazit diff, potvrdenie a vytvorit automaticku zalohu `.env`.
 - [ ] Umoznit bezpecny restart sluzby po zmene nastaveni.
 - [ ] Pridat tlacidla: pozastavit bota, spustit bota, dry-run rezim.
-- [ ] Pridat jednoduche prihlasovanie alebo aspon obmedzenie pristupu.
-- [ ] Nasadit web UI tak, aby nebolo verejne otvorene bez ochrany.
+- [ ] Pridat silnejsie prihlasovanie pre pripad verejne dostupnej domeny, napr. nginx basic auth, Cloudflare Access, VPN/Tailscale alebo vlastny login s lepsou spravou pouzivatelov.

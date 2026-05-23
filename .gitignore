@@ -1,6 +1,7 @@
 .env
 .env.*
 !.env.example
+!.env.web.example
 logs/
 reports/
 backups/

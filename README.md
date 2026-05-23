@@ -118,6 +118,39 @@ Recommended path:
 3. small real limits,
 4. trading API key without withdrawals.
 
+## Private Web Dashboard
+
+The project includes a simple read-only web dashboard with login. It does not place orders, edit `.env` files, restart services, or call the Crypto.com API.
+
+Create a private local config:
+
+```bash
+cp .env.web.example .env.web
+```
+
+Edit `.env.web` and choose a strong password:
+
+```env
+WEB_BIND_HOST=127.0.0.1
+WEB_PORT=8787
+WEB_USERNAME=admin
+WEB_PASSWORD=change-this-password
+```
+
+Start it:
+
+```bash
+npm run web
+```
+
+Open:
+
+```text
+http://127.0.0.1:8787
+```
+
+For VPS use, keep `WEB_BIND_HOST=127.0.0.1` and access it through a protected path such as an SSH tunnel, VPN/Tailscale, Cloudflare Access, or a properly protected reverse proxy. Do not expose the dashboard publicly without access protection.
+
 ## Batch Strategy
 
 Use:

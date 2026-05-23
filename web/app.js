@@ -1,0 +1,573 @@
+const state = {
+  data: null,
+  view: "overview",
+  pair: "BTC_USD",
+  batchTab: "open"
+};
+
+const app = document.getElementById("app");
+
+init();
+
+async function init() {
+  try {
+    const response = await fetch("/api/dashboard", { cache: "no-store" });
+    if (response.status === 401) {
+      location.href = "/login";
+      return;
+    }
+    state.data = await response.json();
+    state.pair = state.data.pairs[0]?.instrument || "BTC_USD";
+    render();
+  } catch (error) {
+    app.innerHTML = `<div class="loading">Dashboard sa nepodarilo nacitat: ${escapeHtml(error.message)}</div>`;
+  }
+}
+
+function render() {
+  app.innerHTML = `
+    <div class="shell">
+      ${sidebar()}
+      <main class="main">
+        ${topbar()}
+        <section class="page">${page()}</section>
+      </main>
+    </div>
+  `;
+  bindEvents();
+}
+
+function sidebar() {
+  const pairs = state.data.pairs;
+  const alertCount = state.data.alerts.length;
+  const lastTick = newest(pairs.map((pair) => pair.latestSnapshotAt));
+  const healthy = pairs.every((pair) => pair.status === "running");
+  return `
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="mark">BB</div>
+        <div>
+          <div class="brand-name">Batch Bot</div>
+          <div class="brand-sub">Crypto.com DCA strategy</div>
+        </div>
+      </div>
+
+      <div>
+        <div class="section-label">Workspace</div>
+        <nav class="nav">
+          ${navButton("overview", "Prehlad")}
+          ${navButton("alerts", `Zdravie / chyby <span class="count">${alertCount}</span>`)}
+        </nav>
+      </div>
+
+      <div>
+        <div class="section-label">Trading pary</div>
+        <nav class="nav">
+          ${pairs.map((pair) => pairButton(pair)).join("")}
+        </nav>
+      </div>
+
+      <div>
+        <div class="section-label">System</div>
+        <nav class="nav">
+          ${navButton("settings", "Nastavenia")}
+        </nav>
+      </div>
+
+      <div class="side-foot">
+        <div><span class="dot ${healthy ? "" : "warn"}"></span> <strong>${healthy ? "Sluzby vyzeraju OK" : "Skontroluj upozornenia"}</strong></div>
+        <div style="margin-top:8px">Last tick <span class="mono" style="float:right;color:var(--text)">${shortDate(lastTick)}</span></div>
+        <div style="margin-top:8px">Rezim <span class="mono" style="float:right;color:var(--text)">read-only</span></div>
+      </div>
+    </aside>
+  `;
+}
+
+function navButton(view, label) {
+  return `<button data-view="${view}" class="${state.view === view ? "active" : ""}">${label}</button>`;
+}
+
+function pairButton(pair) {
+  const active = state.view === "pair" && state.pair === pair.instrument;
+  return `
+    <button data-view="pair" data-pair="${pair.instrument}" class="${active ? "active" : ""}">
+      <span class="dot ${pair.status === "running" ? "" : pair.status}"></span>
+      ${pair.instrument.replace("_", " / ")}
+      <span class="count">${pair.openBatches}</span>
+    </button>
+  `;
+}
+
+function topbar() {
+  const title = state.view === "pair"
+    ? state.pair.replace("_", " / ")
+    : state.view === "settings"
+      ? "Nastavenia"
+      : state.view === "alerts"
+        ? "Zdravie / chyby"
+        : "Prehlad";
+  const anyLiveTrading = state.data.pairs.some((pair) => String(pair.safeSettings.ENABLE_TRADING).toLowerCase() === "true");
+  return `
+    <div class="topbar">
+      <div class="crumbs">Workspace / <strong>${title}</strong></div>
+      <div class="top-actions">
+        <span class="chip">Read-only <strong>ON</strong></span>
+        <span class="chip">Trading <strong class="${anyLiveTrading ? "neg" : ""}">${anyLiveTrading ? "ENABLED" : "OFF"}</strong></span>
+        <span class="chip">Generated <strong>${shortTime(state.data.generatedAt)}</strong></span>
+        <button class="btn" data-refresh>Refresh</button>
+        <form method="post" action="/logout" style="margin:0"><button class="btn" type="submit">Odhlasit</button></form>
+      </div>
+    </div>
+  `;
+}
+
+function page() {
+  if (state.view === "pair") return pairDetail(pairByInstrument(state.pair));
+  if (state.view === "settings") return settingsPage();
+  if (state.view === "alerts") return alertsPage();
+  return overviewPage();
+}
+
+function overviewPage() {
+  const totals = state.data.totals;
+  const alerts = state.data.alerts;
+  return `
+    ${alerts.length ? banner("warn", `${alerts.length} upozorneni na kontrolu`, alerts.slice(0, 2).map((a) => `${a.instrument}: ${a.title}`).join(" | ")) : banner("info", "Dashboard je read-only", "Zobrazuje logy a stav. Neposiela ordery, nemeni nastavenia ani nerestartuje sluzby.")}
+    <div class="kpi-row">
+      ${kpi("Total portfolio", money(totals.portfolioValue), "Podla poslednych snapshotov")}
+      ${kpi("Realized incl. dust", signedMoney(totals.realizedInclDust), `${totals.closedBatches} uzavretych davok`, totals.realizedInclDust)}
+      ${kpi("Unrealized P/L", signedMoney(totals.unrealized), `${totals.openBatches} otvorenych davok`, totals.unrealized)}
+      ${kpi("Open batches", fmt(totals.openBatches, 0), "CRO + BTC")}
+      ${kpi("Pairs", fmt(state.data.pairs.length, 0), "Aktivne konfiguracie")}
+    </div>
+    <div class="grid-2">
+      ${state.data.pairs.map(pairCard).join("")}
+    </div>
+    <div class="grid-2">
+      ${systemStatusCard()}
+      ${dailySummaryCard()}
+    </div>
+  `;
+}
+
+function pairCard(pair) {
+  return `
+    <article class="pair-card" data-open-pair="${pair.instrument}">
+      <div class="pair-head">
+        <span class="dot ${pair.status === "running" ? "" : pair.status}"></span>
+        <div class="pair-title">${pair.instrument.replace("_", " / ")}</div>
+        <span class="pill ${pair.status}">${statusLabel(pair.status)}</span>
+      </div>
+      <div class="grid-2" style="align-items:center">
+        <div>
+          <div class="kpi-label">Last price</div>
+          <div class="kpi-value">${money(pair.lastPrice, priceDigits(pair))}</div>
+          <div class="kpi-foot">Next sell ${pair.nextSellPrice ? money(pair.nextSellPrice, priceDigits(pair)) : "-"}</div>
+        </div>
+        ${miniChart(pair.recentSnapshots)}
+      </div>
+      <div class="pair-grid">
+        ${metric("Realized", signedMoney(pair.realizedInclDust), pair.realizedInclDust)}
+        ${metric("Unrealized", signedMoney(pair.unrealized), pair.unrealized)}
+        ${metric("Open", pair.openBatches)}
+        ${metric("Closed", pair.closedBatches)}
+        ${metric("Quote", money(pair.portfolio?.quoteTotal || 0))}
+        ${metric("Base", `${fmt(pair.portfolio?.baseTotal || 0, pair.baseAsset === "BTC" ? 8 : 2)} ${pair.baseAsset}`)}
+        ${metric("Dust", fmt(pair.dustBankQuantity, pair.baseAsset === "BTC" ? 8 : 4))}
+        ${metric("Service", serviceLabel(pair.serviceActive))}
+      </div>
+    </article>
+  `;
+}
+
+function pairDetail(pair) {
+  if (!pair) return `<div class="empty">Par sa nenasiel.</div>`;
+  const rows = state.batchTab === "closed" ? closedBatchesTable(pair.closedBatchRows) : openBatchesTable(pair.openBatchRows, pair);
+  return `
+    ${pair.alerts.length ? pair.alerts.map((alert) => banner(alert.level, alert.title, alert.text)).join("") : banner("info", "Bez vaznych upozorneni", "Posledne dostupne data pre tento par su nacitane.")}
+    <div class="kpi-row">
+      ${kpi(`${pair.instrument} last price`, money(pair.lastPrice, priceDigits(pair)), `Avg open ${money(pair.avgOpenPrice, priceDigits(pair))}`)}
+      ${kpi("Realized incl. dust", signedMoney(pair.realizedInclDust), `Cash ${signedMoney(pair.realizedCash)}`, pair.realizedInclDust)}
+      ${kpi("Unrealized P/L", signedMoney(pair.unrealized), `${pair.openBatches} otvorenych davok`, pair.unrealized)}
+      ${kpi("Quote balance", money(pair.portfolio?.quoteTotal || 0), pair.quoteAsset)}
+      ${kpi("Base balance", fmt(pair.portfolio?.baseTotal || 0, pair.baseAsset === "BTC" ? 8 : 2), pair.baseAsset)}
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h2>Price history</h2><span class="sub">${pair.recentSnapshots.length} bodov</span></div>
+      <div class="card-body">${priceChart(pair)}</div>
+    </div>
+
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-head">
+          <h2>Batches</h2>
+          <div class="head-right tabs">
+            <button data-batch-tab="open" class="${state.batchTab === "open" ? "active" : ""}">Open ${pair.openBatches}</button>
+            <button data-batch-tab="closed" class="${state.batchTab === "closed" ? "active" : ""}">Closed ${pair.closedBatches}</button>
+          </div>
+        </div>
+        <div class="card-body flush">${rows}</div>
+      </div>
+      <div class="card">
+        <div class="card-head"><h2>Recent orders</h2><span class="sub">poslednych ${pair.recentOrders.length}</span></div>
+        <div class="card-body flush">${ordersTable(pair.recentOrders, pair)}</div>
+      </div>
+    </div>
+
+    <div class="grid-3">
+      ${makerStatsCard(pair)}
+      ${feesCard(pair)}
+      ${dustCard(pair)}
+    </div>
+  `;
+}
+
+function settingsPage() {
+  return `
+    ${banner("info", "Nastavenia su zatial iba na citanie", "Editacia .env, restart sluzieb a ovladanie bota su odlozene do dalsich faz.")}
+    <div class="grid-2">
+      ${state.data.pairs.map((pair) => `
+        <div class="card">
+          <div class="card-head"><h2>${pair.instrument.replace("_", " / ")}</h2><span class="sub">${escapeHtml(pair.envFile)}</span></div>
+          <div class="card-body">
+            <div class="settings-list">
+              ${Object.entries(pair.safeSettings).map(([key, value]) => `
+                <div class="setting"><span>${escapeHtml(key)}</span><span>${escapeHtml(String(value ?? ""))}</span></div>
+              `).join("")}
+            </div>
+          </div>
+        </div>
+      `).join("")}
+    </div>
+  `;
+}
+
+function alertsPage() {
+  const alerts = state.data.alerts;
+  return `
+    <div class="kpi-row">
+      ${kpi("Open alerts", fmt(alerts.length, 0), "read-only health")}
+      ${kpi("Services running", `${state.data.pairs.filter((p) => p.serviceActive !== false).length} / ${state.data.pairs.length}`, "null na Windows je OK")}
+      ${kpi("Oldest snapshot", oldestSnapshotText(), "max age kontrola")}
+      ${kpi("Mode", "Private", "127.0.0.1 bind")}
+      ${kpi("Secrets in UI", "0", "whitelistovane polia")}
+    </div>
+    <div class="card">
+      <div class="card-head"><h2>Upozornenia</h2></div>
+      <div class="card-body">
+        ${alerts.length ? alerts.map((alert) => `
+          <div class="banner ${alert.level}">
+            <span class="dot ${alert.level === "error" ? "error" : alert.level === "warn" ? "warn" : ""}"></span>
+            <div><div class="banner-title">${escapeHtml(alert.instrument)}: ${escapeHtml(alert.title)}</div><div class="banner-sub">${escapeHtml(alert.text)}</div></div>
+          </div>
+        `).join("<br>") : `<div class="empty">Ziadne upozornenia.</div>`}
+      </div>
+    </div>
+    ${systemStatusCard()}
+  `;
+}
+
+function systemStatusCard() {
+  return `
+    <div class="card">
+      <div class="card-head"><h2>System status</h2><span class="sub">read-only</span></div>
+      <div class="card-body flush">
+        <table>
+          <thead><tr><th>Par</th><th>Sluzba</th><th>Status</th><th class="right">Snapshot age</th></tr></thead>
+          <tbody>${state.data.pairs.map((pair) => `
+            <tr>
+              <td>${pair.instrument}</td>
+              <td class="mono">${escapeHtml(pair.serviceName)}</td>
+              <td><span class="pill ${pair.status}">${serviceLabel(pair.serviceActive)}</span></td>
+              <td class="right mono">${pair.snapshotAgeMinutes === null ? "-" : `${fmt(pair.snapshotAgeMinutes, 1)}m`}</td>
+            </tr>
+          `).join("")}</tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+function dailySummaryCard() {
+  const rows = state.data.pairs.flatMap((pair) => pair.dailySummaries.slice(0, 7).map((row) => ({ ...row, instrument: pair.instrument }))).slice(0, 12);
+  return `
+    <div class="card">
+      <div class="card-head"><h2>Daily summary</h2><span class="sub">posledne uzavrete dni</span></div>
+      <div class="card-body flush">
+        ${rows.length ? `<table><thead><tr><th>Den</th><th>Par</th><th class="right">Closed</th><th class="right">Realized</th></tr></thead><tbody>
+          ${rows.map((row) => `<tr><td class="mono">${row.day}</td><td>${row.instrument}</td><td class="right num">${row.closedBatches}</td><td class="right num ${tone(row.realizedCash)}">${signedMoney(row.realizedCash)}</td></tr>`).join("")}
+        </tbody></table>` : `<div class="empty">Zatial nie su denne suhrny.</div>`}
+      </div>
+    </div>
+  `;
+}
+
+function openBatchesTable(rows, pair) {
+  if (!rows.length) return `<div class="empty">Ziadne otvorene davky.</div>`;
+  return `<div class="table-wrap"><table>
+    <thead><tr><th>ID</th><th>Created</th><th class="right">Qty</th><th class="right">Avg</th><th class="right">Next sell</th><th class="right">P/L</th><th class="right">Buys</th></tr></thead>
+    <tbody>${rows.map((row) => `<tr>
+      <td class="mono">${shortId(row.id)}</td>
+      <td class="mono">${shortDate(row.createdAt)}</td>
+      <td class="right num">${fmt(row.quantity, pair.baseAsset === "BTC" ? 8 : 2)}</td>
+      <td class="right num">${money(row.averagePrice, priceDigits(pair))}</td>
+      <td class="right num">${money(row.nextSellPrice, priceDigits(pair))}</td>
+      <td class="right num ${tone(row.unrealized)}">${signedMoney(row.unrealized)}</td>
+      <td class="right num">${row.buys}</td>
+    </tr>`).join("")}</tbody>
+  </table></div>`;
+}
+
+function closedBatchesTable(rows) {
+  if (!rows.length) return `<div class="empty">Ziadne uzavrete davky.</div>`;
+  return `<div class="table-wrap"><table>
+    <thead><tr><th>ID</th><th>Closed</th><th class="right">P/L incl. dust</th><th class="right">%</th><th class="right">Hold</th></tr></thead>
+    <tbody>${rows.map((row) => `<tr>
+      <td class="mono">${shortId(row.id)}</td>
+      <td class="mono">${shortDate(row.closedAt)}</td>
+      <td class="right num ${tone(row.realizedPnlInclDust)}">${signedMoney(row.realizedPnlInclDust)}</td>
+      <td class="right num ${tone(row.realizedPctInclDust)}">${signedPct(row.realizedPctInclDust)}</td>
+      <td class="right num">${row.holdingHours === null ? "-" : `${fmt(row.holdingHours / 24, 1)}d`}</td>
+    </tr>`).join("")}</tbody>
+  </table></div>`;
+}
+
+function ordersTable(rows, pair) {
+  if (!rows.length) return `<div class="empty">Ziadne ordery v logoch.</div>`;
+  return `<div class="table-wrap"><table>
+    <thead><tr><th>Time</th><th>Kind</th><th>Side</th><th>Status</th><th class="right">Qty</th><th class="right">Price</th></tr></thead>
+    <tbody>${rows.map((row) => `<tr>
+      <td class="mono">${shortDate(row.at)}</td>
+      <td>${escapeHtml(row.kind || "-")}</td>
+      <td class="${row.side === "BUY" ? "side-buy" : row.side === "SELL" ? "side-sell" : ""}">${escapeHtml(row.side || "-")}</td>
+      <td><span class="status ${statusClass(row.fillStatus)}">${escapeHtml(row.fillStatus || "-")}</span></td>
+      <td class="right num">${fmt(row.quantity || 0, pair.baseAsset === "BTC" ? 8 : 2)}</td>
+      <td class="right num">${row.price ? money(row.price, priceDigits(pair)) : "-"}</td>
+    </tr>`).join("")}</tbody>
+  </table></div>`;
+}
+
+function makerStatsCard(pair) {
+  const stats = pair.makerStats || {};
+  return `
+    <div class="card">
+      <div class="card-head"><h3>Maker stats</h3><span class="sub">ak sa pouziva maker rezim</span></div>
+      <div class="card-body">
+        ${metric("Limit orders", fmt(stats.total || 0, 0))}
+        ${metric("Filled", `${fmt(stats.filled || 0, 0)} (${fmt(stats.fillRatePct || 0, 1)}%)`)}
+        ${metric("Canceled", `${fmt(stats.canceled || 0, 0)} (${fmt(stats.cancelRatePct || 0, 1)}%)`)}
+        ${metric("Active", fmt(stats.active || 0, 0))}
+      </div>
+    </div>
+  `;
+}
+
+function feesCard(pair) {
+  return `
+    <div class="card">
+      <div class="card-head"><h3>Fees</h3><span class="sub">summary</span></div>
+      <div class="card-body">
+        ${pair.feeStats.length ? pair.feeStats.map((fee) => metric(fee.currency, `${fmt(fee.amount, 8)} (${fee.count})`)).join("") : `<div class="empty">Ziadne fee riadky.</div>`}
+      </div>
+    </div>
+  `;
+}
+
+function dustCard(pair) {
+  return `
+    <div class="card">
+      <div class="card-head"><h3>Dust bank</h3><span class="sub">${pair.baseAsset}</span></div>
+      <div class="card-body">
+        ${metric(`Dust ${pair.baseAsset}`, fmt(pair.dustBankQuantity, pair.baseAsset === "BTC" ? 8 : 4))}
+        ${metric("Dust value", money(pair.dustBankValue, 4))}
+        ${metric("Log dir", escapeHtml(pair.logDir))}
+      </div>
+    </div>
+  `;
+}
+
+function priceChart(pair) {
+  const points = pair.recentSnapshots;
+  if (points.length < 2) return `<div class="empty">Zatial malo cenovych bodov na graf.</div>`;
+  const w = 960;
+  const h = 260;
+  const pad = { l: 70, r: 20, t: 20, b: 36 };
+  const prices = points.map((p) => Number(p.price || 0)).filter((p) => p > 0);
+  const min = Math.min(...prices);
+  const max = Math.max(...prices);
+  const span = max - min || max * 0.01 || 1;
+  const yMin = min - span * 0.1;
+  const yMax = max + span * 0.1;
+  const plotW = w - pad.l - pad.r;
+  const plotH = h - pad.t - pad.b;
+  const x = (i) => pad.l + (i * plotW) / (points.length - 1);
+  const y = (price) => pad.t + ((yMax - price) / (yMax - yMin)) * plotH;
+  const poly = points.map((point, i) => `${x(i).toFixed(1)},${y(point.price).toFixed(1)}`).join(" ");
+  const ticks = [0, .25, .5, .75, 1].map((ratio) => {
+    const value = yMax - (yMax - yMin) * ratio;
+    const yy = pad.t + plotH * ratio;
+    return `<line x1="${pad.l}" x2="${w - pad.r}" y1="${yy}" y2="${yy}" stroke="#edf0f2"/><text x="${pad.l - 8}" y="${yy + 4}" text-anchor="end" font-size="11" fill="#7b8494">${money(value, priceDigits(pair))}</text>`;
+  }).join("");
+  return `<svg class="chart" viewBox="0 0 ${w} ${h}" role="img" aria-label="Price chart">
+    ${ticks}
+    <polyline points="${poly}" fill="none" stroke="#131618" stroke-width="2"/>
+    ${points.map((point, i) => point.orderCount ? `<circle cx="${x(i)}" cy="${y(point.price)}" r="${Math.min(7, 3 + point.orderCount)}" fill="#23845a" opacity=".85"><title>${point.orderCount} order(s)</title></circle>` : "").join("")}
+    <line x1="${pad.l}" x2="${w - pad.r}" y1="${h - pad.b}" y2="${h - pad.b}" stroke="#d4d7dc"/>
+    <text x="${pad.l}" y="${h - 12}" font-size="11" fill="#7b8494">${shortDate(points[0].at)}</text>
+    <text x="${w - pad.r}" y="${h - 12}" text-anchor="end" font-size="11" fill="#7b8494">${shortDate(points.at(-1).at)}</text>
+  </svg>`;
+}
+
+function miniChart(points) {
+  if (points.length < 2) return `<div class="empty">No chart</div>`;
+  const w = 280;
+  const h = 80;
+  const prices = points.map((p) => Number(p.price || 0));
+  const min = Math.min(...prices);
+  const max = Math.max(...prices);
+  const span = max - min || 1;
+  const poly = points.map((point, i) => {
+    const x = (i * w) / (points.length - 1);
+    const y = h - ((point.price - min) / span) * (h - 8) - 4;
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(" ");
+  return `<svg viewBox="0 0 ${w} ${h}" style="width:100%;height:80px"><polyline points="${poly}" fill="none" stroke="#131618" stroke-width="2"/></svg>`;
+}
+
+function kpi(label, value, foot = "", numberTone = null) {
+  return `<div class="kpi"><div class="kpi-label">${label}</div><div class="kpi-value ${numberTone === null ? "" : tone(numberTone)}">${value}</div><div class="kpi-foot">${foot}</div></div>`;
+}
+
+function metric(label, value, numericTone = null) {
+  return `<div><div class="metric-label">${label}</div><div class="metric-value ${numericTone === null ? "" : tone(numericTone)}">${value}</div></div>`;
+}
+
+function banner(level, title, text) {
+  return `<div class="banner ${level}"><span class="dot ${level === "error" ? "error" : level === "warn" ? "warn" : ""}"></span><div><div class="banner-title">${escapeHtml(title)}</div><div class="banner-sub">${escapeHtml(text)}</div></div></div>`;
+}
+
+function bindEvents() {
+  document.querySelectorAll("[data-view]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.view = button.dataset.view;
+      if (button.dataset.pair) state.pair = button.dataset.pair;
+      render();
+    });
+  });
+  document.querySelectorAll("[data-open-pair]").forEach((card) => {
+    card.addEventListener("click", () => {
+      state.view = "pair";
+      state.pair = card.dataset.openPair;
+      state.batchTab = "open";
+      render();
+    });
+  });
+  document.querySelectorAll("[data-batch-tab]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.batchTab = button.dataset.batchTab;
+      render();
+    });
+  });
+  document.querySelector("[data-refresh]")?.addEventListener("click", init);
+}
+
+function pairByInstrument(instrument) {
+  return state.data.pairs.find((pair) => pair.instrument === instrument);
+}
+
+function statusLabel(status) {
+  if (status === "running") return "Running";
+  if (status === "warn") return "Warning";
+  if (status === "error") return "Error";
+  return "Unknown";
+}
+
+function serviceLabel(value) {
+  if (value === true) return "running";
+  if (value === false) return "inactive";
+  return "unknown";
+}
+
+function statusClass(status) {
+  const value = String(status || "").toLowerCase();
+  if (value.includes("fill")) return "filled";
+  if (value.includes("active")) return "active";
+  if (value.includes("cancel") || value.includes("fail") || value.includes("reject")) return "canceled";
+  return "";
+}
+
+function oldestSnapshotText() {
+  const ages = state.data.pairs.map((pair) => pair.snapshotAgeMinutes).filter((age) => age !== null);
+  if (!ages.length) return "-";
+  return `${fmt(Math.max(...ages), 1)}m`;
+}
+
+function newest(values) {
+  const times = values.map((value) => new Date(value || "").getTime()).filter(Number.isFinite);
+  if (!times.length) return null;
+  return new Date(Math.max(...times)).toISOString();
+}
+
+function priceDigits(pair) {
+  return pair.baseAsset === "BTC" ? 2 : 4;
+}
+
+function money(value, digits = 2) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "-";
+  return `$${fmt(number, digits)}`;
+}
+
+function signedMoney(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "-";
+  return `${number > 0 ? "+" : number < 0 ? "-" : ""}$${fmt(Math.abs(number), 2)}`;
+}
+
+function signedPct(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "-";
+  return `${number > 0 ? "+" : ""}${fmt(number, 2)}%`;
+}
+
+function fmt(value, digits = 2) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "-";
+  return number.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits });
+}
+
+function tone(value) {
+  const number = Number(value);
+  if (number > 0) return "pos";
+  if (number < 0) return "neg";
+  return "";
+}
+
+function shortDate(value) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return "-";
+  return date.toLocaleString("sk-SK", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+
+function shortTime(value) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return "-";
+  return date.toLocaleTimeString("sk-SK", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
+function shortId(value) {
+  const text = String(value || "");
+  if (text.length <= 18) return escapeHtml(text || "-");
+  return escapeHtml(`${text.slice(0, 12)}...${text.slice(-5)}`);
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
