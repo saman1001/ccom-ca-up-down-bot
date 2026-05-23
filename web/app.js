@@ -450,28 +450,28 @@ function priceChart(pair) {
   const ticks = [0, .25, .5, .75, 1].map((ratio) => {
     const value = yMax - (yMax - yMin) * ratio;
     const yy = pad.t + plotH * ratio;
-    return `<line x1="${pad.l}" x2="${w - pad.r}" y1="${yy}" y2="${yy}" stroke="#edf0f2"/><text x="${pad.l - 8}" y="${yy + 4}" text-anchor="end" font-size="11" fill="#7b8494">${money(value, priceDigits(pair))}</text>`;
+    return `<line x1="${pad.l}" x2="${w - pad.r}" y1="${yy}" y2="${yy}" stroke="#eef0f2" stroke-dasharray="${ratio === 0 || ratio === 1 ? "" : "2 3"}"/><text x="${pad.l - 8}" y="${yy + 4}" text-anchor="end" font-size="11" fill="#6b7385" font-family="IBM Plex Mono, ui-monospace, monospace">${money(value, priceDigits(pair))}</text>`;
   }).join("");
   return `<svg class="chart" viewBox="0 0 ${w} ${h}" role="img" aria-label="Price buys and sells chart">
     ${ticks}
-    <polyline points="${poly}" fill="none" stroke="#131618" stroke-width="2"/>
+    <polyline points="${poly}" fill="none" stroke="#131618" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
     ${points.map((point, i) => {
       const px = x(i);
       const py = y(point.price);
       const marks = [];
       if (point.buyCount) {
-        marks.push(`<polygon points="${px},${py + 17} ${px - 6},${py + 8} ${px + 6},${py + 8}" fill="#23845a"><title>${point.buyCount} BUY</title></polygon>`);
-        if (point.buyCount > 1) marks.push(`<text x="${px}" y="${py + 31}" text-anchor="middle" font-size="10" fill="#23845a" font-weight="700">${point.buyCount}</text>`);
+        marks.push(`<polygon points="${px},${py + 17} ${px - 6},${py + 8} ${px + 6},${py + 8}" fill="oklch(56% 0.13 150)"><title>${point.buyCount} BUY</title></polygon>`);
+        if (point.buyCount > 1) marks.push(`<text x="${px}" y="${py + 31}" text-anchor="middle" font-size="10" fill="oklch(56% 0.13 150)" font-family="IBM Plex Mono, ui-monospace, monospace" font-weight="700">${point.buyCount}</text>`);
       }
       if (point.sellCount) {
-        marks.push(`<polygon points="${px},${py - 17} ${px - 6},${py - 8} ${px + 6},${py - 8}" fill="#bb2d22"><title>${point.sellCount} SELL</title></polygon>`);
-        if (point.sellCount > 1) marks.push(`<text x="${px}" y="${py - 20}" text-anchor="middle" font-size="10" fill="#bb2d22" font-weight="700">${point.sellCount}</text>`);
+        marks.push(`<polygon points="${px},${py - 17} ${px - 6},${py - 8} ${px + 6},${py - 8}" fill="oklch(57% 0.18 27)"><title>${point.sellCount} SELL</title></polygon>`);
+        if (point.sellCount > 1) marks.push(`<text x="${px}" y="${py - 20}" text-anchor="middle" font-size="10" fill="oklch(57% 0.18 27)" font-family="IBM Plex Mono, ui-monospace, monospace" font-weight="700">${point.sellCount}</text>`);
       }
       return marks.join("");
     }).join("")}
     <circle cx="${x(points.length - 1)}" cy="${y(points.at(-1).price)}" r="3.5" fill="#131618"/>
     <line x1="${pad.l}" x2="${w - pad.r}" y1="${h - pad.b}" y2="${h - pad.b}" stroke="#d4d7dc"/>
-    ${xTicks.map((tick, tickIndex) => `<text x="${x(tick.index)}" y="${h - 12}" font-size="11" fill="#7b8494" text-anchor="${tickIndex === 0 ? "start" : tickIndex === xTicks.length - 1 ? "end" : "middle"}">${chartTickLabel(tick.at)}</text>`).join("")}
+    ${xTicks.map((tick, tickIndex) => `<text x="${x(tick.index)}" y="${h - 12}" font-size="11" fill="#6b7385" font-family="IBM Plex Mono, ui-monospace, monospace" text-anchor="${tickIndex === 0 ? "start" : tickIndex === xTicks.length - 1 ? "end" : "middle"}">${chartTickLabel(tick.at)}</text>`).join("")}
   </svg>`;
 }
 
