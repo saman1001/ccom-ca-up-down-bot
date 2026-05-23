@@ -144,6 +144,8 @@ function buildPairPayload(config) {
     feeStats: reportData.feeStats,
     feePeriodDaily: reportData.feePeriodStats?.daily?.slice(0, 20) || [],
     makerStats: reportData.makerStats,
+    avgHoldingDays: averageHoldingDays(reportData.closedStats),
+    todayRealizedPnl: todayRealizedPnl(reportData.dailySummaries),
     recentSnapshots: reportData.recentSnapshots.map(toChartPoint),
     openBatchRows: reportData.openBatches.slice(0, 50).map((batch) => openBatchRow(batch, reportData.lastPrice, config)),
     closedBatchRows: reportData.closedStats.slice(-50).reverse().map(closedBatchRow),
@@ -157,11 +159,26 @@ function buildPairPayload(config) {
 function buildTotals(pairs) {
   return {
     portfolioValue: pairs.reduce((sum, pair) => sum + Number(pair.portfolio?.totalQuoteValue || 0), 0),
+    todayRealizedPnl: pairs.reduce((sum, pair) => sum + Number(pair.todayRealizedPnl || 0), 0),
     realizedInclDust: pairs.reduce((sum, pair) => sum + Number(pair.realizedInclDust || 0), 0),
     unrealized: pairs.reduce((sum, pair) => sum + Number(pair.unrealized || 0), 0),
     openBatches: pairs.reduce((sum, pair) => sum + Number(pair.openBatches || 0), 0),
     closedBatches: pairs.reduce((sum, pair) => sum + Number(pair.closedBatches || 0), 0)
   };
+}
+
+function averageHoldingDays(closedStats) {
+  const hours = closedStats
+    .map((batch) => Number(batch.holdingHours))
+    .filter((value) => Number.isFinite(value) && value >= 0);
+  if (!hours.length) return null;
+  return hours.reduce((sum, value) => sum + value, 0) / hours.length / 24;
+}
+
+function todayRealizedPnl(dailySummaries) {
+  const today = new Date().toISOString().slice(0, 10);
+  const row = dailySummaries.find((item) => item.day === today);
+  return row ? Number(row.realizedCash || 0) : 0;
 }
 
 function buildReportData({ config, batches, dustBank, snapshots, orderEvents }) {

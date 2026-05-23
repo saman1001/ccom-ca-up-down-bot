@@ -214,6 +214,59 @@ button, input { font: inherit; }
 .tabs { display: flex; gap: 4px; background: var(--bg-sunk); border: 1px solid var(--line); border-radius: 8px; padding: 2px; }
 .tabs button { border: 0; background: transparent; border-radius: 6px; padding: 5px 10px; color: var(--muted); cursor: pointer; }
 .tabs button.active { background: #fff; color: var(--text); }
+.tabs button:disabled { cursor: default; opacity: .65; }
+
+.bars {
+  position: relative;
+  height: 170px;
+  display: grid;
+  grid-template-columns: repeat(7, minmax(34px, 1fr));
+  gap: 14px;
+  align-items: stretch;
+  padding: 18px 10px 20px;
+}
+.bar-zero {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  top: 50%;
+  height: 1px;
+  background: var(--line-strong);
+}
+.bar-col {
+  position: relative;
+  min-width: 0;
+  height: 130px;
+}
+.bar {
+  position: absolute;
+  left: 50%;
+  width: min(42px, 70%);
+  transform: translateX(-50%);
+  border-radius: 4px 4px 0 0;
+}
+.bar.positive { background: rgba(35, 132, 90, .82); }
+.bar.negative {
+  background: rgba(187, 45, 34, .82);
+  border-radius: 0 0 4px 4px;
+}
+.bar-value {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  text-align: center;
+  font: 700 10px var(--mono);
+}
+.bar-label {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -20px;
+  text-align: center;
+  color: var(--muted);
+  font: 11px var(--mono);
+}
 
 .table-wrap { overflow: auto; max-height: 420px; }
 table { width: 100%; border-collapse: collapse; min-width: 640px; }

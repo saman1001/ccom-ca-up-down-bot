@@ -135,10 +135,10 @@ function overviewPage() {
     ${alerts.length ? banner("warn", `${alerts.length} upozorneni na kontrolu`, alerts.slice(0, 2).map((a) => `${a.instrument}: ${a.title}`).join(" | ")) : banner("info", "Dashboard je read-only", "Zobrazuje logy a stav. Neposiela ordery, nemeni nastavenia ani nerestartuje sluzby.")}
     <div class="kpi-row">
       ${kpi("Total portfolio", money(totals.portfolioValue), "Podla poslednych snapshotov")}
+      ${kpi("Today P/L", signedMoney(totals.todayRealizedPnl), "realized dnes", totals.todayRealizedPnl)}
       ${kpi("Realized incl. dust", signedMoney(totals.realizedInclDust), `${totals.closedBatches} uzavretych davok`, totals.realizedInclDust)}
       ${kpi("Unrealized P/L", signedMoney(totals.unrealized), `${totals.openBatches} otvorenych davok`, totals.unrealized)}
-      ${kpi("Open batches", fmt(totals.openBatches, 0), "CRO + BTC")}
-      ${kpi("Pairs", fmt(state.data.pairs.length, 0), "Aktivne konfiguracie")}
+      ${kpi("Cash P/L only", signedMoney(state.data.pairs.reduce((sum, pair) => sum + Number(pair.realizedCash || 0), 0)), "bez dust value", state.data.pairs.reduce((sum, pair) => sum + Number(pair.realizedCash || 0), 0))}
     </div>
     <div class="grid-2">
       ${state.data.pairs.map(pairCard).join("")}
@@ -173,8 +173,8 @@ function pairCard(pair) {
         ${metric("Closed", pair.closedBatches)}
         ${metric("Quote", money(pair.portfolio?.quoteTotal || 0))}
         ${metric("Base", `${fmt(pair.portfolio?.baseTotal || 0, pair.baseAsset === "BTC" ? 8 : 2)} ${pair.baseAsset}`)}
-        ${metric("Dust", fmt(pair.dustBankQuantity, pair.baseAsset === "BTC" ? 8 : 4))}
-        ${metric("Service", serviceLabel(pair.serviceActive))}
+        ${metric("Maker fill", pair.makerStats?.total ? `${fmt(pair.makerStats.fillRatePct || 0, 1)}%` : "-")}
+        ${metric("Avg holding", pair.avgHoldingDays === null ? "-" : `${fmt(pair.avgHoldingDays, 1)}d`)}
       </div>
     </article>
   `;
@@ -290,17 +290,50 @@ function systemStatusCard() {
 }
 
 function dailySummaryCard() {
-  const rows = state.data.pairs.flatMap((pair) => pair.dailySummaries.slice(0, 7).map((row) => ({ ...row, instrument: pair.instrument }))).slice(0, 12);
+  const rows = combinedDailyPnlRows();
   return `
     <div class="card">
-      <div class="card-head"><h2>Daily summary</h2><span class="sub">posledne uzavrete dni</span></div>
-      <div class="card-body flush">
-        ${rows.length ? `<table><thead><tr><th>Den</th><th>Par</th><th class="right">Closed</th><th class="right">Realized</th></tr></thead><tbody>
-          ${rows.map((row) => `<tr><td class="mono">${row.day}</td><td>${row.instrument}</td><td class="right num">${row.closedBatches}</td><td class="right num ${tone(row.realizedCash)}">${signedMoney(row.realizedCash)}</td></tr>`).join("")}
-        </tbody></table>` : `<div class="empty">Zatial nie su denne suhrny.</div>`}
+      <div class="card-head">
+        <h2>P/L by day</h2><span class="sub">last 7 days · both pairs</span>
+        <div class="head-right tabs"><button class="active">7d</button><button disabled>30d</button><button disabled>All</button></div>
+      </div>
+      <div class="card-body">
+        ${rows.length ? dailyBars(rows) : `<div class="empty">Zatial nie su denne P/L data.</div>`}
       </div>
     </div>
   `;
+}
+
+function combinedDailyPnlRows() {
+  const rows = new Map();
+  for (const pair of state.data.pairs) {
+    for (const row of pair.dailySummaries || []) {
+      const current = rows.get(row.day) || { day: row.day, realizedCash: 0, closedBatches: 0 };
+      current.realizedCash += Number(row.realizedCash || 0);
+      current.closedBatches += Number(row.closedBatches || 0);
+      rows.set(row.day, current);
+    }
+  }
+  return Array.from(rows.values()).sort((a, b) => a.day.localeCompare(b.day)).slice(-7);
+}
+
+function dailyBars(rows) {
+  const max = Math.max(...rows.map((row) => Math.abs(Number(row.realizedCash || 0))), 1);
+  return `<div class="bars" aria-label="P/L by day">
+    <div class="bar-zero"></div>
+    ${rows.map((row) => {
+      const value = Number(row.realizedCash || 0);
+      const height = Math.max(4, Math.round((Math.abs(value) / max) * 72));
+      const style = value >= 0
+        ? `height:${height}px; bottom:50%;`
+        : `height:${height}px; top:50%;`;
+      return `<div class="bar-col">
+        <div class="bar-value ${tone(value)}">${value === 0 ? "$0" : signedMoney(value)}</div>
+        <div class="bar ${value >= 0 ? "positive" : "negative"}" style="${style}"></div>
+        <div class="bar-label">${shortDay(row.day)}</div>
+      </div>`;
+    }).join("")}
+  </div>`;
 }
 
 function openBatchesTable(rows, pair) {
@@ -556,6 +589,13 @@ function shortTime(value) {
   const date = new Date(value);
   if (!Number.isFinite(date.getTime())) return "-";
   return date.toLocaleTimeString("sk-SK", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
+function shortDay(value) {
+  if (!value) return "-";
+  const date = new Date(`${value}T00:00:00Z`);
+  if (!Number.isFinite(date.getTime())) return value.slice(5);
+  return date.toLocaleDateString("sk-SK", { month: "2-digit", day: "2-digit" });
 }
 
 function shortId(value) {
