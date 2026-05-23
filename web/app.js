@@ -287,24 +287,21 @@ function settingsPage() {
 
 function alertsPage() {
   const alerts = state.data.alerts;
+  const errorCount = alerts.filter((alert) => alert.level === "error").length;
+  const warnCount = alerts.filter((alert) => alert.level === "warn").length;
+  const staleOrders = state.data.pairs.reduce((sum, pair) => sum + Number(pair.health?.staleMakerOrders || 0), 0);
+  const recentErrors = state.data.pairs.reduce((sum, pair) => sum + Number(pair.health?.recentErrors?.length || 0), 0);
   return `
     <div class="kpi-row">
-      ${kpi("Open alerts", fmt(alerts.length, 0), "read-only health")}
-      ${kpi("Services running", `${state.data.pairs.filter((p) => p.serviceActive !== false).length} / ${state.data.pairs.length}`, "null na Windows je OK")}
-      ${kpi("Oldest snapshot", oldestSnapshotText(), "max age kontrola")}
-      ${kpi("Mode", "Private", "127.0.0.1 bind")}
-      ${kpi("Secrets in UI", "0", "whitelistovane polia")}
+      ${kpi("Health", alerts.length ? `${errorCount} err / ${warnCount} warn` : "OK", "read-only kontrola", errorCount ? -1 : warnCount ? 0 : 1)}
+      ${kpi("Services running", `${state.data.pairs.filter((p) => p.serviceActive !== false).length} / ${state.data.pairs.length}`, "systemd active")}
+      ${kpi("Oldest tick", oldestSnapshotText(), "max age kontrola")}
+      ${kpi("Stale maker", fmt(staleOrders, 0), "active po timeoute", staleOrders ? -1 : 1)}
+      ${kpi("Log errors", fmt(recentErrors, 0), "posledne journal riadky", recentErrors ? -1 : 1)}
     </div>
-    <div class="card">
-      <div class="card-head"><h2>Upozornenia</h2></div>
-      <div class="card-body">
-        ${alerts.length ? alerts.map((alert) => `
-          <div class="banner ${alert.level}">
-            <span class="dot ${alert.level === "error" ? "error" : alert.level === "warn" ? "warn" : ""}"></span>
-            <div><div class="banner-title">${escapeHtml(alert.instrument)}: ${escapeHtml(alert.title)}</div><div class="banner-sub">${escapeHtml(alert.text)}</div></div>
-          </div>
-        `).join("<br>") : `<div class="empty">Ziadne upozornenia.</div>`}
-      </div>
+    ${alerts.length ? `<div class="alert-stack">${alerts.map(alertRow).join("")}</div>` : banner("info", "Ziadne otvorene upozornenia", "Sluzby, tick data a zakladne kontroly vyzeraju v poriadku.")}
+    <div class="grid-2">
+      ${state.data.pairs.map(healthPairCard).join("")}
     </div>
     ${systemStatusCard()}
   `;
@@ -316,17 +313,73 @@ function systemStatusCard() {
       <div class="card-head"><h2>System status</h2><span class="sub">read-only</span></div>
       <div class="card-body flush">
         <table>
-          <thead><tr><th>Par</th><th>Sluzba</th><th>Status</th><th class="right">Snapshot age</th></tr></thead>
+          <thead><tr><th>Par</th><th>Sluzba</th><th>Status</th><th class="right">PID</th><th class="right">Tick age</th></tr></thead>
           <tbody>${state.data.pairs.map((pair) => `
             <tr>
               <td>${pair.instrument}</td>
               <td class="mono">${escapeHtml(pair.serviceName)}</td>
               <td><span class="pill ${pair.status}">${serviceLabel(pair.serviceActive)}</span></td>
+              <td class="right mono">${pair.health?.service?.mainPid || "-"}</td>
               <td class="right mono">${pair.snapshotAgeMinutes === null ? "-" : `${fmt(pair.snapshotAgeMinutes, 1)}m`}</td>
             </tr>
           `).join("")}</tbody>
         </table>
       </div>
+    </div>
+  `;
+}
+
+function alertRow(alert) {
+  return `
+    <div class="banner ${alert.level}">
+      <span class="dot ${alert.level === "error" ? "error" : alert.level === "warn" ? "warn" : ""}"></span>
+      <div>
+        <div class="banner-title">${escapeHtml(alert.instrument)}: ${escapeHtml(alert.title)}</div>
+        <div class="banner-sub">${escapeHtml(alert.text)}</div>
+      </div>
+    </div>
+  `;
+}
+
+function healthPairCard(pair) {
+  const health = pair.health || {};
+  const service = health.service || {};
+  const lastErrors = health.recentErrors || [];
+  return `
+    <div class="card health-card">
+      <div class="card-head">
+        <h2>${pair.instrument.replace("_", " / ")}</h2>
+        <span class="pill ${pair.status}">${statusLabel(pair.status)}</span>
+        <span class="sub">${escapeHtml(pair.serviceName)}</span>
+      </div>
+      <div class="card-body">
+        <div class="health-grid">
+          ${healthMetric("Service", service.activeState || serviceLabel(pair.serviceActive), service.subState || "")}
+          ${healthMetric("PID", service.mainPid || "-", service.activeEnterTimestamp ? `since ${shortDate(service.activeEnterTimestamp)}` : "")}
+          ${healthMetric("Last tick", shortDate(health.lastSnapshotAt), health.snapshotAgeMinutes === null ? "" : `${fmt(health.snapshotAgeMinutes, 1)} min ago`)}
+          ${healthMetric("Snapshots", fmt(health.snapshotCount || 0, 0), health.dataSource === "sqlite" ? "SQLite" : "Logs")}
+          ${healthMetric("Maker active", fmt(health.activeMakerOrders || 0, 0), `${fmt(health.staleMakerOrders || 0, 0)} stale`)}
+          ${healthMetric("Trading", health.tradingEnabled ? "ENABLED" : "OFF", health.dryRun ? "DRY_RUN on" : "DRY_RUN off")}
+        </div>
+        <div class="mini-section">
+          <div class="mini-title">Recent log errors</div>
+          ${lastErrors.length ? `<ul class="log-list">${lastErrors.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}</ul>` : `<div class="empty compact">Ziadne posledne error riadky.</div>`}
+        </div>
+        <div class="mini-section">
+          <div class="mini-title">Latest orders</div>
+          ${ordersTable((pair.recentOrders || []).slice(0, 5), pair)}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function healthMetric(label, value, note = "") {
+  return `
+    <div class="health-metric">
+      <div class="metric-label">${escapeHtml(label)}</div>
+      <div class="metric-value">${escapeHtml(String(value ?? "-"))}</div>
+      ${note ? `<div class="metric-note">${escapeHtml(note)}</div>` : ""}
     </div>
   `;
 }

@@ -116,8 +116,9 @@ function buildPairPayload(config) {
     ...config.safeSettings,
     SERVICE_NAME: serviceName
   };
+  const health = buildHealth({ config, serviceName, serviceActive, latest, snapshotAgeMinutes, reportData, source });
 
-  const alerts = buildAlerts({ latest, snapshotAgeMinutes, serviceActive, serviceName, reportData, config });
+  const alerts = buildAlerts({ latest, snapshotAgeMinutes, serviceActive, serviceName, reportData, config, health });
 
   return {
     instrument: config.instrument,
@@ -156,6 +157,7 @@ function buildPairPayload(config) {
     recentOrders: reportData.recentOrders.slice(0, 25).map(orderRow),
     dailySummaries: reportData.dailySummaries.slice(0, 20),
     safeSettings,
+    health,
     alerts
   };
 }
@@ -479,7 +481,7 @@ function lastDate(values) {
   return dates.length ? new Date(Math.max(...dates.map((date) => date.getTime()))) : null;
 }
 
-function buildAlerts({ latest, snapshotAgeMinutes, serviceActive, serviceName, reportData, config }) {
+function buildAlerts({ latest, snapshotAgeMinutes, serviceActive, serviceName, reportData, config, health }) {
   const alerts = [];
   if (!latest) alerts.push({ level: "warn", title: "Missing snapshot", text: "No snapshots.jsonl data found yet." });
   if (snapshotAgeMinutes !== null && snapshotAgeMinutes > maxSnapshotAgeMinutes()) {
@@ -496,7 +498,47 @@ function buildAlerts({ latest, snapshotAgeMinutes, serviceActive, serviceName, r
     const usage = reportData.openBatches.length / max;
     if (usage >= 0.8) alerts.push({ level: "warn", title: "Open batch limit near", text: `${reportData.openBatches.length} / ${max} open batches.` });
   }
+  if (health.staleMakerOrders > 0) {
+    alerts.push({ level: "warn", title: "Stale maker orders", text: `${health.staleMakerOrders} active maker orders are past timeout.` });
+  }
+  if (health.recentErrors.length > 0) {
+    alerts.push({ level: "warn", title: "Recent log errors", text: `${health.recentErrors.length} recent error-like log lines found.` });
+  }
   return alerts;
+}
+
+function buildHealth({ config, serviceName, serviceActive, latest, snapshotAgeMinutes, reportData, source }) {
+  const service = systemctlDetails(serviceName);
+  const activeMakerOrders = reportData.orders.filter((order) => isActiveMakerOrder(order));
+  const timeoutMinutes = numberValue(config.env.MAKER_ORDER_TIMEOUT_MINUTES, 15);
+  const staleMakerOrders = activeMakerOrders.filter((order) => {
+    const age = order.at ? minutesSince(order.at) : null;
+    return age !== null && age > timeoutMinutes;
+  }).length;
+  const lastOrderAt = lastDate(reportData.orders.map((order) => order.at))?.toISOString() || null;
+  return {
+    ok: serviceActive !== false && Boolean(latest) && !(snapshotAgeMinutes !== null && snapshotAgeMinutes > maxSnapshotAgeMinutes()),
+    service,
+    dataSource: source.source,
+    sqlitePath: source.sqlitePath ? displayPath(source.sqlitePath) : null,
+    lastSnapshotAt: latest?.at || null,
+    snapshotAgeMinutes,
+    snapshotCount: source.snapshots.length,
+    orderEventCount: source.orderEvents.length,
+    lastOrderAt,
+    activeMakerOrders: activeMakerOrders.length,
+    staleMakerOrders,
+    makerOrderTimeoutMinutes: timeoutMinutes,
+    envFileExists: config.envFileExists,
+    tradingEnabled: config.enableTrading,
+    dryRun: config.dryRun,
+    recentErrors: recentServiceErrors(serviceName)
+  };
+}
+
+function isActiveMakerOrder(order) {
+  return String(order.orderType || "").toUpperCase() === "LIMIT"
+    && String(order.fillStatus || "").toUpperCase().includes("ACTIVE");
 }
 
 function statusFor({ latest, snapshotAgeMinutes, serviceActive, alerts }) {
@@ -676,6 +718,71 @@ function systemctlIsActive(serviceName) {
   if (process.platform === "win32") return null;
   const result = spawnSync("systemctl", ["is-active", "--quiet", serviceName], { stdio: "ignore" });
   return result.status === 0;
+}
+
+function systemctlDetails(serviceName) {
+  if (process.platform === "win32") {
+    return {
+      name: serviceName,
+      active: null,
+      activeState: "unknown",
+      subState: "unknown",
+      mainPid: null,
+      activeEnterTimestamp: null,
+      execMainStatus: null
+    };
+  }
+  const result = spawnSync("systemctl", [
+    "show",
+    serviceName,
+    "--property=ActiveState,SubState,MainPID,ActiveEnterTimestamp,ExecMainStatus",
+    "--no-pager"
+  ], { encoding: "utf8", timeout: 1500 });
+  const fields = {};
+  for (const line of String(result.stdout || "").split(/\r?\n/)) {
+    const index = line.indexOf("=");
+    if (index > 0) fields[line.slice(0, index)] = line.slice(index + 1);
+  }
+  const pid = Number(fields.MainPID || 0);
+  const status = Number(fields.ExecMainStatus || 0);
+  return {
+    name: serviceName,
+    active: fields.ActiveState ? fields.ActiveState === "active" : result.status === 0,
+    activeState: fields.ActiveState || "unknown",
+    subState: fields.SubState || "unknown",
+    mainPid: pid > 0 ? pid : null,
+    activeEnterTimestamp: parseSystemdTimestamp(fields.ActiveEnterTimestamp),
+    execMainStatus: Number.isFinite(status) ? status : null
+  };
+}
+
+function recentServiceErrors(serviceName) {
+  if (process.platform === "win32") return [];
+  const result = spawnSync("journalctl", ["-u", serviceName, "-n", "120", "--no-pager", "--output=short-iso"], {
+    encoding: "utf8",
+    timeout: 2000,
+    maxBuffer: 256 * 1024
+  });
+  if (result.status !== 0 && !result.stdout) return [];
+  return String(result.stdout || "")
+    .split(/\r?\n/)
+    .filter((line) => /error|fail|reject|timeout|suspicious|insufficient|invalid|inactive/i.test(line))
+    .slice(-8)
+    .map((line) => sanitizeLogLine(line));
+}
+
+function sanitizeLogLine(line) {
+  return String(line || "")
+    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[email]")
+    .replace(/(api[_-]?key|api[_-]?secret|secret|password|token)=\S+/gi, "$1=[redacted]")
+    .replace(/\b\d{1,3}(?:\.\d{1,3}){3}\b/g, "[ip]")
+    .slice(0, 220);
+}
+
+function parseSystemdTimestamp(value) {
+  if (!value || value === "n/a") return null;
+  const timestamp = new Date(value).getTime();
+  return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : value;
 }
 
 function serviceNameForInstrument(instrument) {
