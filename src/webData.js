@@ -479,7 +479,7 @@ function orderStatusCategory(status) {
   const value = String(status || "").toUpperCase();
   if (["FILLED", "PARTIALLY_FILLED"].includes(value)) return "filled";
   if (value === "ACTIVE") return "active";
-  if (value.includes("CANCEL") || value === "REJECTED" || value === "EXPIRED") return "canceled";
+  if (value.includes("CANCEL") || value === "REJECTED" || value === "EXPIRED" || value === "NO_FILL" || value === "CREATED") return "canceled";
   return "other";
 }
 
