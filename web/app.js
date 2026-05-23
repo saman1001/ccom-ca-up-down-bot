@@ -446,6 +446,7 @@ function priceChart(pair) {
   const x = (i) => pad.l + (i * plotW) / (points.length - 1);
   const y = (price) => pad.t + ((yMax - price) / (yMax - yMin)) * plotH;
   const poly = points.map((point, i) => `${x(i).toFixed(1)},${y(point.price).toFixed(1)}`).join(" ");
+  const xTicks = chartXTicks(points, 7);
   const ticks = [0, .25, .5, .75, 1].map((ratio) => {
     const value = yMax - (yMax - yMin) * ratio;
     const yy = pad.t + plotH * ratio;
@@ -470,9 +471,28 @@ function priceChart(pair) {
     }).join("")}
     <circle cx="${x(points.length - 1)}" cy="${y(points.at(-1).price)}" r="3.5" fill="#131618"/>
     <line x1="${pad.l}" x2="${w - pad.r}" y1="${h - pad.b}" y2="${h - pad.b}" stroke="#d4d7dc"/>
-    <text x="${pad.l}" y="${h - 12}" font-size="11" fill="#7b8494">${shortDate(points[0].at)}</text>
-    <text x="${w - pad.r}" y="${h - 12}" text-anchor="end" font-size="11" fill="#7b8494">${shortDate(points.at(-1).at)}</text>
+    ${xTicks.map((tick, tickIndex) => `<text x="${x(tick.index)}" y="${h - 12}" font-size="11" fill="#7b8494" text-anchor="${tickIndex === 0 ? "start" : tickIndex === xTicks.length - 1 ? "end" : "middle"}">${chartTickLabel(tick.at)}</text>`).join("")}
   </svg>`;
+}
+
+function chartXTicks(points, maxTicks) {
+  if (points.length <= maxTicks) return points.map((point, index) => ({ index, at: point.at }));
+  const used = new Set();
+  const ticks = [];
+  for (let i = 0; i < maxTicks; i += 1) {
+    const index = Math.round((i * (points.length - 1)) / (maxTicks - 1));
+    if (used.has(index)) continue;
+    used.add(index);
+    ticks.push({ index, at: points[index].at });
+  }
+  return ticks;
+}
+
+function chartTickLabel(value) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return "-";
+  return date.toLocaleDateString("sk-SK", { month: "2-digit", day: "2-digit" });
 }
 
 function filterChartPoints(points, range) {
