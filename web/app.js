@@ -3,10 +3,10 @@ const state = {
   view: "overview",
   pair: "BTC_USD",
   batchTab: "open",
-  chartRange: "9d"
+  chartRange: "7d"
 };
 
-const CHART_RANGES = ["24h", "3d", "9d", "30d", "year", "all"];
+const CHART_RANGES = ["24h", "3d", "7d", "30d", "year", "all"];
 
 const app = document.getElementById("app");
 
@@ -537,7 +537,7 @@ function filterChartPoints(points, range) {
   const durationMs = {
     "24h": 24 * 60 * 60 * 1000,
     "3d": 3 * 24 * 60 * 60 * 1000,
-    "9d": 9 * 24 * 60 * 60 * 1000,
+    "7d": 7 * 24 * 60 * 60 * 1000,
     "30d": 30 * 24 * 60 * 60 * 1000,
     year: 365 * 24 * 60 * 60 * 1000
   }[range];
