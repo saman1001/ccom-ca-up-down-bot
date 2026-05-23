@@ -146,7 +146,7 @@ function buildPairPayload(config) {
     makerStats: reportData.makerStats,
     avgHoldingDays: averageHoldingDays(reportData.closedStats),
     todayRealizedPnl: todayRealizedPnl(reportData.dailySummaries),
-    recentSnapshots: buildChartPoints(reportData.recentSnapshots, reportData.recentOrders),
+    recentSnapshots: buildChartPoints(reportData.recentSnapshots, reportData.orders),
     openBatchRows: reportData.openBatches.slice(0, 50).map((batch) => openBatchRow(batch, reportData.lastPrice, config)),
     closedBatchRows: reportData.closedStats.slice(-50).reverse().map(closedBatchRow),
     recentOrders: reportData.recentOrders.slice(0, 25).map(orderRow),
@@ -205,6 +205,7 @@ function buildReportData({ config, batches, dustBank, snapshots, orderEvents }) 
     closedStats,
     recentSnapshots: snapshots.slice(-240),
     recentOrders: orders.slice(-50).reverse(),
+    orders,
     makerStats: buildMakerOrderStats(orders),
     feeStats: buildFeeStats({ batches, orders, dustBank }),
     feePeriodStats: { daily: buildDailyFees({ batches, orders, dustBank }) },
@@ -497,32 +498,50 @@ function orderRow(order) {
 }
 
 function buildChartPoints(snapshots, orders) {
-  const ordersByHour = new Map();
+  const points = snapshots.map((snapshot) => ({
+    at: snapshot.at,
+    price: snapshot.price,
+    buyCount: 0,
+    sellCount: 0,
+    orderCount: 0
+  }));
+  const pointTimes = points.map((point) => new Date(point.at).getTime());
+  if (!points.length) return points;
+
   for (const order of orders || []) {
-    const hour = hourKey(order.at);
-    if (!hour) continue;
-    const row = ordersByHour.get(hour) || { buy: 0, sell: 0 };
-    if (order.side === "BUY") row.buy += 1;
-    if (order.side === "SELL") row.sell += 1;
-    ordersByHour.set(hour, row);
+    if (!isFilledChartOrder(order)) continue;
+    const orderTime = new Date(order.at).getTime();
+    if (!Number.isFinite(orderTime)) continue;
+    const index = nearestPointIndex(pointTimes, orderTime);
+    if (index === -1) continue;
+    const distanceMs = Math.abs(pointTimes[index] - orderTime);
+    if (distanceMs > 3 * 60 * 60 * 1000) continue;
+    if (order.side === "BUY") points[index].buyCount += 1;
+    if (order.side === "SELL") points[index].sellCount += 1;
+    points[index].orderCount = points[index].buyCount + points[index].sellCount;
   }
 
-  return snapshots.map((snapshot) => {
-    const row = ordersByHour.get(hourKey(snapshot.at)) || { buy: 0, sell: 0 };
-    return {
-      at: snapshot.at,
-      price: snapshot.price,
-      buyCount: row.buy,
-      sellCount: row.sell,
-      orderCount: row.buy + row.sell
-    };
-  });
+  return points;
 }
 
-function hourKey(value) {
-  const date = new Date(value);
-  if (!Number.isFinite(date.getTime())) return "";
-  return date.toISOString().slice(0, 13);
+function isFilledChartOrder(order) {
+  const status = String(order.fillStatus || "").toUpperCase();
+  return status.includes("FILLED") && Number(order.quantity || 0) > 0 && Number(order.price || 0) > 0;
+}
+
+function nearestPointIndex(times, timestamp) {
+  let bestIndex = -1;
+  let bestDistance = Infinity;
+  for (let index = 0; index < times.length; index += 1) {
+    const time = times[index];
+    if (!Number.isFinite(time)) continue;
+    const distance = Math.abs(time - timestamp);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      bestIndex = index;
+    }
+  }
+  return bestIndex;
 }
 
 function pickSafeSettings(env, defaults) {
