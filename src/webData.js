@@ -146,7 +146,7 @@ function buildPairPayload(config) {
     makerStats: reportData.makerStats,
     avgHoldingDays: averageHoldingDays(reportData.closedStats),
     todayRealizedPnl: todayRealizedPnl(reportData.dailySummaries),
-    recentSnapshots: buildChartPoints(reportData.recentSnapshots, reportData.orders),
+    recentSnapshots: buildChartPoints(reportData.recentSnapshots, batches),
     openBatchRows: reportData.openBatches.slice(0, 50).map((batch) => openBatchRow(batch, reportData.lastPrice, config)),
     closedBatchRows: reportData.closedStats.slice(-50).reverse().map(closedBatchRow),
     recentOrders: reportData.recentOrders.slice(0, 25).map(orderRow),
@@ -497,7 +497,7 @@ function orderRow(order) {
   };
 }
 
-function buildChartPoints(snapshots, orders) {
+function buildChartPoints(snapshots, batches) {
   const points = snapshots.map((snapshot) => ({
     at: snapshot.at,
     price: snapshot.price,
@@ -508,25 +508,36 @@ function buildChartPoints(snapshots, orders) {
   const pointTimes = points.map((point) => new Date(point.at).getTime());
   if (!points.length) return points;
 
-  for (const order of orders || []) {
-    if (!isFilledChartOrder(order)) continue;
-    const orderTime = new Date(order.at).getTime();
-    if (!Number.isFinite(orderTime)) continue;
-    const index = nearestPointIndex(pointTimes, orderTime);
+  for (const marker of batchTradeMarkers(batches)) {
+    const markerTime = new Date(marker.at).getTime();
+    if (!Number.isFinite(markerTime)) continue;
+    const index = nearestPointIndex(pointTimes, markerTime);
     if (index === -1) continue;
-    const distanceMs = Math.abs(pointTimes[index] - orderTime);
+    const distanceMs = Math.abs(pointTimes[index] - markerTime);
     if (distanceMs > 3 * 60 * 60 * 1000) continue;
-    if (order.side === "BUY") points[index].buyCount += 1;
-    if (order.side === "SELL") points[index].sellCount += 1;
+    if (marker.side === "BUY") points[index].buyCount += 1;
+    if (marker.side === "SELL") points[index].sellCount += 1;
     points[index].orderCount = points[index].buyCount + points[index].sellCount;
   }
 
   return points;
 }
 
-function isFilledChartOrder(order) {
-  const status = String(order.fillStatus || "").toUpperCase();
-  return status.includes("FILLED") && Number(order.quantity || 0) > 0 && Number(order.price || 0) > 0;
+function batchTradeMarkers(batches) {
+  const markers = [];
+  for (const batch of batches || []) {
+    for (const buy of batch.buys || []) {
+      if (Number(buy.quantity || 0) > 0 && Number(buy.price || 0) > 0) {
+        markers.push({ at: buy.at || batch.createdAt, side: "BUY" });
+      }
+    }
+    for (const sell of batch.sells || []) {
+      if (Number(sell.quantity || 0) > 0 && Number(sell.price || 0) > 0) {
+        markers.push({ at: sell.at || batch.closedAt, side: "SELL" });
+      }
+    }
+  }
+  return markers;
 }
 
 function nearestPointIndex(times, timestamp) {
