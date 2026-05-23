@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import { openSqlite, sqlitePath } from "./sqliteStore.js";
 
 const SAFE_SETTING_KEYS = [
   "INSTRUMENT",
@@ -101,10 +102,11 @@ function configFromEnvFile(envFile) {
 }
 
 function buildPairPayload(config) {
-  const batches = readJson(path.join(config.logDir, "batches.json"), []);
-  const dustBank = readJson(path.join(config.logDir, "dust-bank.json"), { quantity: 0, entries: [], sells: [] });
-  const snapshots = readJsonl(path.join(config.logDir, "snapshots.jsonl"));
-  const orderEvents = readJsonl(path.join(config.logDir, "orders.jsonl"));
+  const source = readPairSource(config);
+  const batches = source.batches;
+  const dustBank = source.dustBank;
+  const snapshots = source.snapshots;
+  const orderEvents = source.orderEvents;
   const reportData = buildReportData({ config, batches, dustBank, snapshots, orderEvents });
   const latest = reportData.latest;
   const serviceName = serviceNameForInstrument(config.instrument);
@@ -124,6 +126,8 @@ function buildPairPayload(config) {
     envFile: config.envFile,
     envFileExists: config.envFileExists,
     logDir: displayPath(config.logDir),
+    dataSource: source.source,
+    sqlitePath: source.sqlitePath ? displayPath(source.sqlitePath) : null,
     serviceName,
     serviceActive,
     status: statusFor({ latest, snapshotAgeMinutes, serviceActive, alerts }),
@@ -154,6 +158,58 @@ function buildPairPayload(config) {
     safeSettings,
     alerts
   };
+}
+
+function readPairSource(config) {
+  const mode = String(process.env.WEB_DATA_SOURCE || "auto").toLowerCase();
+  if (mode !== "logs") {
+    const sqlite = readPairSourceSqlite(config);
+    if (sqlite || mode === "sqlite") {
+      return sqlite || readPairSourceLogs(config, "logs-fallback");
+    }
+  }
+  return readPairSourceLogs(config, "logs");
+}
+
+function readPairSourceSqlite(config) {
+  try {
+    const db = openSqlite(config.logDir);
+    if (!db) return null;
+    const snapshots = db.prepare("SELECT snapshot_json FROM snapshots ORDER BY at").all().map((row) => JSON.parse(row.snapshot_json));
+    if (!snapshots.length) return null;
+    const orderEvents = db.prepare("SELECT event_json FROM order_events ORDER BY at, id").all().map((row) => JSON.parse(row.event_json));
+    const batches = readStateFromDb(db, "batches", []);
+    const dustBank = readStateFromDb(db, "dust_bank", { quantity: 0, entries: [], sells: [] });
+    return {
+      source: "sqlite",
+      sqlitePath: sqlitePath(config.logDir),
+      batches,
+      dustBank,
+      snapshots,
+      orderEvents
+    };
+  } catch (error) {
+    if (String(process.env.WEB_DATA_SOURCE || "auto").toLowerCase() === "sqlite") {
+      console.error(`[web] sqlite source failed for ${config.instrument}: ${error.message}`);
+    }
+    return null;
+  }
+}
+
+function readPairSourceLogs(config, source) {
+  return {
+    source,
+    sqlitePath: null,
+    batches: readJson(path.join(config.logDir, "batches.json"), []),
+    dustBank: readJson(path.join(config.logDir, "dust-bank.json"), { quantity: 0, entries: [], sells: [] }),
+    snapshots: readJsonl(path.join(config.logDir, "snapshots.jsonl")),
+    orderEvents: readJsonl(path.join(config.logDir, "orders.jsonl"))
+  };
+}
+
+function readStateFromDb(db, name, fallback) {
+  const row = db.prepare("SELECT json FROM state WHERE name = ?").get(name);
+  return row ? JSON.parse(row.json) : fallback;
 }
 
 function buildTotals(pairs) {

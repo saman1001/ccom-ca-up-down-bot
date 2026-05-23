@@ -115,6 +115,7 @@ function topbar() {
       <div class="crumbs">Workspace / <strong>${title}</strong></div>
       <div class="top-actions">
         <span class="chip">Read-only <strong>ON</strong></span>
+        <span class="chip">Data <strong>${dataSourceLabel()}</strong></span>
         <span class="chip">Trading <strong class="${anyLiveTrading ? "neg" : ""}">${anyLiveTrading ? "ENABLED" : "OFF"}</strong></span>
         <span class="chip">Generated <strong>${shortTime(state.data.generatedAt)}</strong></span>
         <button class="btn" data-refresh>Refresh</button>
@@ -122,6 +123,11 @@ function topbar() {
       </div>
     </div>
   `;
+}
+
+function dataSourceLabel() {
+  const sources = Array.from(new Set((state.data?.pairs || []).map((pair) => pair.dataSource || "logs")));
+  return sources.length === 1 ? sources[0].toUpperCase() : "MIXED";
 }
 
 function page() {
@@ -423,6 +429,7 @@ function dustCard(pair) {
       <div class="card-body">
         ${metric(`Dust ${pair.baseAsset}`, fmt(pair.dustBankQuantity, pair.baseAsset === "BTC" ? 8 : 4))}
         ${metric("Dust value", money(pair.dustBankValue, 4))}
+        ${metric("Data source", pair.dataSource === "sqlite" ? "SQLite" : "Logs")}
         ${metric("Log dir", escapeHtml(pair.logDir))}
       </div>
     </div>

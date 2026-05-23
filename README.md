@@ -135,6 +135,7 @@ WEB_BIND_HOST=127.0.0.1
 WEB_PORT=8787
 WEB_USERNAME=admin
 WEB_PASSWORD=change-this-password
+WEB_DATA_SOURCE=auto
 ```
 
 Start it:
@@ -150,6 +151,8 @@ http://127.0.0.1:8787
 ```
 
 For VPS use, keep `WEB_BIND_HOST=127.0.0.1` and access it through a protected path such as an SSH tunnel, VPN/Tailscale, Cloudflare Access, or a properly protected reverse proxy. Do not expose the dashboard publicly without access protection.
+
+`WEB_DATA_SOURCE=auto` tries SQLite first and falls back to JSON log files. Use `WEB_DATA_SOURCE=sqlite` to require SQLite, or `WEB_DATA_SOURCE=logs` to read only the original log files.
 
 ## Batch Strategy
 
