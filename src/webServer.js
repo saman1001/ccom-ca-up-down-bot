@@ -39,6 +39,10 @@ async function handleRequest(req, res) {
     return sendHtml(res, loginPage({ error: url.searchParams.get("error") || "" }));
   }
 
+  if (req.method === "GET" && pathname === "/login-hero.png") {
+    return sendFile(res, path.join(publicDir, "login-hero.png"));
+  }
+
   if (req.method === "POST" && pathname === "/login") {
     return handleLogin(req, res);
   }
@@ -227,21 +231,27 @@ function loginPage({ error }) {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Batch Bot Login</title>
   <style>
-    :root { color-scheme: light; --bg:#f7f7f5; --panel:#fff; --text:#131618; --muted:#687084; --line:#e4e6ea; --danger:#b42318; }
+    :root { color-scheme: dark; --bg:#040916; --panel:rgba(8,15,31,.84); --text:#f7fbff; --muted:#a7b4ca; --line:rgba(122,149,190,.28); --danger:#ffb4ab; --blue:#22a7ff; }
     * { box-sizing: border-box; }
-    body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: var(--bg); color: var(--text); font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-    main { width: min(420px, calc(100vw - 32px)); background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 28px; box-shadow: 0 12px 30px rgba(20,22,26,.06); }
-    h1 { margin: 0; font-size: 22px; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: radial-gradient(circle at 50% 20%, rgba(18,72,150,.24), transparent 34%), var(--bg); color: var(--text); font-family: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    body::before { content: ""; position: fixed; inset: 0; background: url("/login-hero.png") center / min(920px, 92vw) auto no-repeat; opacity: .42; filter: saturate(1.05); }
+    body::after { content: ""; position: fixed; inset: 0; background: linear-gradient(90deg, rgba(4,9,22,.92), rgba(4,9,22,.68) 46%, rgba(4,9,22,.88)); }
+    main { position: relative; z-index: 1; width: min(430px, calc(100vw - 32px)); background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 28px; box-shadow: 0 24px 80px rgba(0,0,0,.44); backdrop-filter: blur(14px); }
+    h1 { margin: 0; font-size: 24px; letter-spacing: -.01em; }
     p { color: var(--muted); line-height: 1.5; margin: 8px 0 22px; }
     label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 7px; }
-    input { width: 100%; height: 42px; border: 1px solid var(--line); border-radius: 7px; padding: 0 12px; font: inherit; margin-bottom: 12px; }
-    button { width: 100%; height: 42px; margin-top: 14px; border: 0; border-radius: 7px; background: var(--text); color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
+    input { width: 100%; height: 43px; border: 1px solid var(--line); border-radius: 8px; padding: 0 12px; font: inherit; margin-bottom: 12px; background: rgba(255,255,255,.08); color: var(--text); }
+    input:focus { outline: 2px solid rgba(34,167,255,.38); border-color: rgba(34,167,255,.7); }
+    button { width: 100%; height: 43px; margin-top: 14px; border: 0; border-radius: 8px; background: linear-gradient(135deg, #19b8ff, #126dff); color: #fff; font: inherit; font-weight: 700; cursor: pointer; box-shadow: 0 10px 28px rgba(18,109,255,.32); }
+    button:disabled, input:disabled { opacity: .6; cursor: not-allowed; }
     .msg { color: var(--danger); font-size: 13px; margin: 0 0 14px; }
-    .mark { width: 32px; height: 32px; border-radius: 8px; background: var(--text); color: #fff; display: grid; place-items: center; font: 700 13px ui-monospace, monospace; margin-bottom: 14px; }
+    .mark { width: 34px; height: 34px; border-radius: 9px; background: #fff; color: #081022; display: grid; place-items: center; font: 700 13px ui-monospace, monospace; margin-bottom: 14px; }
+    .hero-mini { width: 100%; aspect-ratio: 16 / 7; border-radius: 10px; background: url("/login-hero.png") center / cover; border: 1px solid var(--line); margin-bottom: 18px; box-shadow: inset 0 0 0 1px rgba(255,255,255,.04); }
   </style>
 </head>
 <body>
   <main>
+    <div class="hero-mini" aria-hidden="true"></div>
     <div class="mark">BB</div>
     <h1>Batch Bot</h1>
     <p>Privatny read-only dashboard pre Crypto.com bota.</p>
