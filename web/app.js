@@ -2,8 +2,11 @@ const state = {
   data: null,
   view: "overview",
   pair: "BTC_USD",
-  batchTab: "open"
+  batchTab: "open",
+  chartRange: "9d"
 };
+
+const CHART_RANGES = ["24h", "3d", "9d", "30d", "year", "all"];
 
 const app = document.getElementById("app");
 
@@ -196,7 +199,10 @@ function pairDetail(pair) {
     <div class="card">
       <div class="card-head">
         <h2>Price · buys and sells</h2><span class="sub">${pair.instrument} · ${pair.recentSnapshots.length} ticks</span>
-        <div class="head-right chart-legend"><span class="legend-dot price"></span> price <span class="legend-triangle buy"></span> BUY <span class="legend-triangle sell"></span> SELL</div>
+        <div class="head-right chart-tools">
+          <div class="chart-legend"><span class="legend-dot price"></span> price <span class="legend-triangle buy"></span> BUY <span class="legend-triangle sell"></span> SELL</div>
+          <div class="tabs">${CHART_RANGES.map((range) => `<button data-chart-range="${range}" class="${state.chartRange === range ? "active" : ""}">${range}</button>`).join("")}</div>
+        </div>
       </div>
       <div class="card-body">${priceChart(pair)}</div>
     </div>
@@ -424,7 +430,7 @@ function dustCard(pair) {
 }
 
 function priceChart(pair) {
-  const points = pair.recentSnapshots;
+  const points = filterChartPoints(pair.recentSnapshots, state.chartRange);
   if (points.length < 2) return `<div class="empty">Zatial malo cenovych bodov na graf.</div>`;
   const w = 960;
   const h = 260;
@@ -467,6 +473,27 @@ function priceChart(pair) {
     <text x="${pad.l}" y="${h - 12}" font-size="11" fill="#7b8494">${shortDate(points[0].at)}</text>
     <text x="${w - pad.r}" y="${h - 12}" text-anchor="end" font-size="11" fill="#7b8494">${shortDate(points.at(-1).at)}</text>
   </svg>`;
+}
+
+function filterChartPoints(points, range) {
+  if (range === "all") return points;
+  const last = points.at(-1);
+  const lastMs = new Date(last?.at || "").getTime();
+  if (!Number.isFinite(lastMs)) return points;
+  const durationMs = {
+    "24h": 24 * 60 * 60 * 1000,
+    "3d": 3 * 24 * 60 * 60 * 1000,
+    "9d": 9 * 24 * 60 * 60 * 1000,
+    "30d": 30 * 24 * 60 * 60 * 1000,
+    year: 365 * 24 * 60 * 60 * 1000
+  }[range];
+  if (!durationMs) return points;
+  const cutoff = lastMs - durationMs;
+  const filtered = points.filter((point) => {
+    const ms = new Date(point.at || "").getTime();
+    return Number.isFinite(ms) && ms >= cutoff;
+  });
+  return filtered.length >= 2 ? filtered : points.slice(-2);
 }
 
 function miniChart(points) {
@@ -516,6 +543,12 @@ function bindEvents() {
   document.querySelectorAll("[data-batch-tab]").forEach((button) => {
     button.addEventListener("click", () => {
       state.batchTab = button.dataset.batchTab;
+      render();
+    });
+  });
+  document.querySelectorAll("[data-chart-range]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.chartRange = button.dataset.chartRange;
       render();
     });
   });

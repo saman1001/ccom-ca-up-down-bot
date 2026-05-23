@@ -186,6 +186,13 @@ button, input { font: inherit; }
 .card-head h2, .card-head h3 { margin: 0; font-size: 14px; }
 .sub { color: var(--muted); font-size: 12px; }
 .head-right { margin-left: auto; }
+.chart-tools {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
 .chart-legend {
   display: flex;
   align-items: center;
