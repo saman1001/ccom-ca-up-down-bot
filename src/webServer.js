@@ -43,6 +43,10 @@ async function handleRequest(req, res) {
     return sendFile(res, path.join(publicDir, "login-hero.png"));
   }
 
+  if (req.method === "GET" && (pathname === "/favicon.ico" || pathname === "/favicon.png")) {
+    return sendFile(res, path.join(publicDir, "favicon.png"));
+  }
+
   if (req.method === "POST" && pathname === "/login") {
     return handleLogin(req, res);
   }
@@ -230,6 +234,7 @@ function loginPage({ error }) {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Batch Bot Login</title>
+  <link rel="icon" type="image/png" href="/favicon.png">
   <style>
     :root { color-scheme: dark; --bg:#040916; --panel:rgba(8,15,31,.84); --text:#f7fbff; --muted:#a7b4ca; --line:rgba(122,149,190,.28); --danger:#ffb4ab; --blue:#22a7ff; }
     * { box-sizing: border-box; }
