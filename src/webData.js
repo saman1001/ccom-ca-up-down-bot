@@ -463,11 +463,13 @@ function buildMakerOrderStats(orders) {
   const filled = makerOrders.filter((order) => String(order.fillStatus).toUpperCase().includes("FILLED")).length;
   const canceled = makerOrders.filter((order) => String(order.fillStatus).toUpperCase().includes("CANCEL")).length;
   const active = makerOrders.filter((order) => String(order.fillStatus).toUpperCase().includes("ACTIVE")).length;
+  const other = Math.max(0, makerOrders.length - filled - canceled - active);
   return {
     total: makerOrders.length,
     filled,
     canceled,
     active,
+    other,
     fillRatePct: makerOrders.length ? (filled / makerOrders.length) * 100 : 0,
     cancelRatePct: makerOrders.length ? (canceled / makerOrders.length) * 100 : 0
   };
@@ -486,8 +488,8 @@ function latestOrderStates(orders) {
 }
 
 function orderIdentity(order) {
-  if (order.orderId) return `order:${order.orderId}`;
   if (order.clientOid) return `client:${order.clientOid}`;
+  if (order.orderId) return `order:${order.orderId}`;
   return `fallback:${order.at || ""}:${order.kind || ""}:${order.side || ""}:${order.orderType || ""}:${order.limitPrice || ""}:${order.quantity || ""}`;
 }
 

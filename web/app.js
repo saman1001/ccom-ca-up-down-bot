@@ -490,6 +490,7 @@ function makerStatsCard(pair) {
         ${metric("Filled", `${fmt(stats.filled || 0, 0)} (${fmt(stats.fillRatePct || 0, 1)}%)`)}
         ${metric("Canceled", `${fmt(stats.canceled || 0, 0)} (${fmt(stats.cancelRatePct || 0, 1)}%)`)}
         ${metric("Active", fmt(stats.active || 0, 0))}
+        ${metric("Other", fmt(stats.other || 0, 0))}
       </div>
     </div>
   `;
