@@ -174,7 +174,7 @@ function overviewPage() {
       ${kpi("Today P/L", signedMoney(totals.todayRealizedPnl), "realized dnes", totals.todayRealizedPnl)}
       ${kpi("Realized incl. dust", signedMoney(totals.realizedInclDust), `${totals.closedBatches} uzavretych davok`, totals.realizedInclDust)}
       ${kpi("Unrealized P/L", signedMoney(totals.unrealized), `${totals.openBatches} otvorenych davok`, totals.unrealized)}
-      ${kpi("Cash P/L only", signedMoney(state.data.pairs.reduce((sum, pair) => sum + Number(pair.realizedCash || 0), 0)), "bez dust value", state.data.pairs.reduce((sum, pair) => sum + Number(pair.realizedCash || 0), 0))}
+      ${kpi("P/L p.a.", pct(totals.annualizedStats?.batchAnnualizedPct), "closed batches", totals.annualizedStats?.batchAnnualizedPct)}
     </div>
     <div class="grid-2">
       ${state.data.pairs.map(pairCard).join("")}
@@ -211,6 +211,7 @@ function pairCard(pair) {
         ${metric("Base", `${fmt(pair.portfolio?.baseTotal || 0, pair.baseAsset === "BTC" ? 8 : 2)} ${pair.baseAsset}`)}
         ${metric("Maker fill", pair.makerStats?.total ? `${fmt(pair.makerStats.fillRatePct || 0, 1)}%` : "-")}
         ${metric("Avg holding", pair.avgHoldingDays === null ? "-" : `${fmt(pair.avgHoldingDays, 1)}d`)}
+        ${metric("P/L p.a.", pct(pair.annualizedStats?.batchAnnualizedPct), pair.annualizedStats?.batchAnnualizedPct)}
       </div>
     </article>
   `;
@@ -224,6 +225,7 @@ function pairDetail(pair) {
     <div class="kpi-row pair-hero">
       ${kpi(`${pair.instrument} last price`, money(pair.lastPrice, priceDigits(pair)), `Next sell at ${pair.nextSellPrice ? money(pair.nextSellPrice, priceDigits(pair)) : "-"} · Avg open ${money(pair.avgOpenPrice, priceDigits(pair))}`)}
       ${kpi("Realized incl. dust", signedMoney(pair.realizedInclDust), `Cash ${signedMoney(pair.realizedCash)}`, pair.realizedInclDust)}
+      ${kpi("P/L p.a.", pct(pair.annualizedStats?.batchAnnualizedPct), "closed batches", pair.annualizedStats?.batchAnnualizedPct)}
       ${kpi("Unrealized P/L", signedMoney(pair.unrealized), `${pair.openBatches} otvorenych davok`, pair.unrealized)}
       ${kpi("Quote balance", money(pair.portfolio?.quoteTotal || 0), pair.quoteAsset)}
       ${kpi("Base balance", fmt(pair.portfolio?.baseTotal || 0, pair.baseAsset === "BTC" ? 8 : 2), pair.baseAsset)}
@@ -260,6 +262,7 @@ function pairDetail(pair) {
     <div class="grid-3">
       ${makerStatsCard(pair)}
       ${feesCard(pair)}
+      ${annualizedCard(pair)}
       ${dustCard(pair)}
     </div>
   `;
@@ -450,12 +453,13 @@ function openBatchesTable(rows, pair) {
 function closedBatchesTable(rows) {
   if (!rows.length) return `<div class="empty">Ziadne uzavrete davky.</div>`;
   return `<div class="table-wrap"><table>
-    <thead><tr><th>ID</th><th>Closed</th><th class="right">P/L incl. dust</th><th class="right">%</th><th class="right">Hold</th></tr></thead>
+    <thead><tr><th>ID</th><th>Closed</th><th class="right">P/L incl. dust</th><th class="right">%</th><th class="right">P/L p.a.</th><th class="right">Hold</th></tr></thead>
     <tbody>${rows.map((row) => `<tr>
       <td class="mono">${shortId(row.id)}</td>
       <td class="mono">${shortDate(row.closedAt)}</td>
       <td class="right num ${tone(row.realizedPnlInclDust)}">${signedMoney(row.realizedPnlInclDust)}</td>
       <td class="right num ${tone(row.realizedPctInclDust)}">${signedPct(row.realizedPctInclDust)}</td>
+      <td class="right num ${tone(row.annualizedPct)}">${pct(row.annualizedPct)}</td>
       <td class="right num">${row.holdingHours === null ? "-" : `${fmt(row.holdingHours / 24, 1)}d`}</td>
     </tr>`).join("")}</tbody>
   </table></div>`;
@@ -497,6 +501,21 @@ function feesCard(pair) {
       <div class="card-head"><h3>Fees</h3><span class="sub">summary</span></div>
       <div class="card-body">
         ${pair.feeStats.length ? pair.feeStats.map((fee) => metric(fee.currency, `${fmt(fee.amount, 8)} (${fee.count})`)).join("") : `<div class="empty">Ziadne fee riadky.</div>`}
+      </div>
+    </div>
+  `;
+}
+
+function annualizedCard(pair) {
+  const stats = pair.annualizedStats || {};
+  return `
+    <div class="card">
+      <div class="card-head"><h3>Annualized P/L</h3><span class="sub">closed batches</span></div>
+      <div class="card-body">
+        ${metric("P/L p.a.", pct(stats.batchAnnualizedPct), stats.batchAnnualizedPct)}
+        ${metric("Profit", signedMoney(stats.batchProfit || 0), stats.batchProfit || 0)}
+        ${metric("Capital-years", fmt(stats.batchCapitalYears || 0, 6))}
+        ${metric("P/L p.a. incl. sold dust", pct(stats.annualizedInclSoldDustPct), stats.annualizedInclSoldDustPct)}
       </div>
     </div>
   `;
@@ -719,6 +738,12 @@ function signedPct(value) {
   const number = Number(value);
   if (!Number.isFinite(number)) return "-";
   return `${number > 0 ? "+" : ""}${fmt(number, 2)}%`;
+}
+
+function pct(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "-";
+  return `${fmt(number, 2)}%`;
 }
 
 function fmt(value, digits = 2) {

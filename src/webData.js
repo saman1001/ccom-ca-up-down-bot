@@ -149,6 +149,7 @@ function buildPairPayload(config) {
     feeStats: reportData.feeStats,
     feePeriodDaily: reportData.feePeriodStats?.daily?.slice(0, 20) || [],
     makerStats: reportData.makerStats,
+    annualizedStats: reportData.annualizedStats,
     avgHoldingDays: averageHoldingDays(reportData.closedStats),
     todayRealizedPnl: todayRealizedPnl(reportData.dailySummaries),
     recentSnapshots: buildChartPoints(reportData.recentSnapshots, batches),
@@ -215,13 +216,25 @@ function readStateFromDb(db, name, fallback) {
 }
 
 function buildTotals(pairs) {
+  const batchProfit = pairs.reduce((sum, pair) => sum + Number(pair.annualizedStats?.batchProfit || 0), 0);
+  const batchCapitalYears = pairs.reduce((sum, pair) => sum + Number(pair.annualizedStats?.batchCapitalYears || 0), 0);
+  const profitInclSoldDust = pairs.reduce((sum, pair) => sum + Number(pair.annualizedStats?.profitInclSoldDust || 0), 0);
+  const totalCapitalYears = pairs.reduce((sum, pair) => sum + Number(pair.annualizedStats?.totalCapitalYears || 0), 0);
   return {
     portfolioValue: pairs.reduce((sum, pair) => sum + Number(pair.portfolio?.totalQuoteValue || 0), 0),
     todayRealizedPnl: pairs.reduce((sum, pair) => sum + Number(pair.todayRealizedPnl || 0), 0),
     realizedInclDust: pairs.reduce((sum, pair) => sum + Number(pair.realizedInclDust || 0), 0),
     unrealized: pairs.reduce((sum, pair) => sum + Number(pair.unrealized || 0), 0),
     openBatches: pairs.reduce((sum, pair) => sum + Number(pair.openBatches || 0), 0),
-    closedBatches: pairs.reduce((sum, pair) => sum + Number(pair.closedBatches || 0), 0)
+    closedBatches: pairs.reduce((sum, pair) => sum + Number(pair.closedBatches || 0), 0),
+    annualizedStats: {
+      batchProfit,
+      batchCapitalYears,
+      batchAnnualizedPct: ratePct(batchProfit, batchCapitalYears),
+      profitInclSoldDust,
+      totalCapitalYears,
+      annualizedInclSoldDustPct: ratePct(profitInclSoldDust, totalCapitalYears)
+    }
   };
 }
 
@@ -253,6 +266,7 @@ function buildReportData({ config, batches, dustBank, snapshots, orderEvents }) 
   const avgOpenPrice = totalOpenQuantity > 0 ? totalOpenCost / totalOpenQuantity : 0;
   const nextSellPrice = nextOpenBatchSellPrice(openBatches, config.takeProfitRisePct);
   const closedStats = buildClosedBatchStats(closedBatches, lastPrice);
+  const annualizedStats = buildAnnualizedStats({ closedStats, dustBank });
   const orders = extractOrders({ snapshots, orderEvents });
 
   return {
@@ -267,6 +281,7 @@ function buildReportData({ config, batches, dustBank, snapshots, orderEvents }) 
     makerStats: buildMakerOrderStats(orders),
     feeStats: buildFeeStats({ batches, orders, dustBank }),
     feePeriodStats: { daily: buildDailyFees({ batches, orders, dustBank }) },
+    annualizedStats,
     dailySummaries: buildDailySummaries(closedBatches, dustBank),
     realizedCash,
     realizedWithClosedDust,
@@ -296,15 +311,72 @@ function buildClosedBatchStats(closedBatches, lastPrice) {
     return {
       id: batch.id,
       closedAt: batch.closedAt || "",
+      buyCost,
       realizedPnl: realized,
       realizedPnlInclDust: realized + dustQuantity * lastPrice,
       realizedPctInclDust: buyCost > 0 ? ((realized + dustQuantity * lastPrice) / buyCost) * 100 : 0,
+      annualizedPct: ratePct(realized, capitalYears(buyCost, holdingMs)),
       dustQuantity,
+      holdingMs,
       holdingHours: holdingMs === null ? null : holdingMs / 36e5,
       buys: (batch.buys || []).length,
       sells: (batch.sells || []).length
     };
   });
+}
+
+function buildAnnualizedStats({ closedStats, dustBank }) {
+  const batchCapitalYears = closedStats.reduce((sum, batch) => sum + capitalYears(batch.buyCost, batch.holdingMs), 0);
+  const batchProfit = closedStats.reduce((sum, batch) => sum + Number(batch.realizedPnl || 0), 0);
+  const dust = buildSoldDustStats(dustBank);
+  const totalCapitalYears = batchCapitalYears + dust.capitalYears;
+  const profitInclSoldDust = batchProfit + dust.soldValue;
+
+  return {
+    batchProfit,
+    batchCapitalYears,
+    batchAnnualizedPct: ratePct(batchProfit, batchCapitalYears),
+    soldDustValue: dust.soldValue,
+    soldDustCapitalYears: dust.capitalYears,
+    profitInclSoldDust,
+    totalCapitalYears,
+    annualizedInclSoldDustPct: ratePct(profitInclSoldDust, totalCapitalYears)
+  };
+}
+
+function buildSoldDustStats(dustBank) {
+  const lots = (dustBank.entries || [])
+    .map((entry) => ({
+      remaining: Number(entry.quantity || 0),
+      price: Number(entry.price || 0),
+      at: entry.at
+    }))
+    .filter((lot) => lot.remaining > 0);
+  let soldValue = 0;
+  let dustCapitalYears = 0;
+
+  for (const sell of dustBank.sells || []) {
+    let quantityToAllocate = Number(sell.quantity || 0);
+    const sellPrice = Number(sell.price || 0);
+    const soldAt = sell.at;
+    if (!Number.isFinite(quantityToAllocate) || quantityToAllocate <= 0) continue;
+    soldValue += quantityToAllocate * sellPrice;
+
+    for (const lot of lots) {
+      if (quantityToAllocate <= 0) break;
+      if (lot.remaining <= 0) continue;
+      const quantity = Math.min(lot.remaining, quantityToAllocate);
+      const capital = quantity * lot.price;
+      dustCapitalYears += capitalYearsBetween(capital, lot.at, soldAt);
+      lot.remaining -= quantity;
+      quantityToAllocate -= quantity;
+    }
+  }
+
+  return {
+    soldValue,
+    capitalYears: dustCapitalYears
+  };
 }
 
 function nextOpenBatchSellPrice(openBatches, takeProfitRisePct) {
@@ -501,6 +573,29 @@ function lastDate(values) {
   return dates.length ? new Date(Math.max(...dates.map((date) => date.getTime()))) : null;
 }
 
+function capitalYears(capital, holdingMs) {
+  if (!Number.isFinite(capital) || capital <= 0) return 0;
+  if (!Number.isFinite(holdingMs) || holdingMs <= 0) return 0;
+  return capital * (holdingMs / yearMs());
+}
+
+function capitalYearsBetween(capital, from, to) {
+  const fromDate = new Date(from);
+  const toDate = new Date(to);
+  if (!Number.isFinite(fromDate.getTime()) || !Number.isFinite(toDate.getTime())) return 0;
+  return capitalYears(capital, toDate.getTime() - fromDate.getTime());
+}
+
+function ratePct(profit, capitalYearsValue) {
+  if (!Number.isFinite(profit)) return null;
+  if (!Number.isFinite(capitalYearsValue) || capitalYearsValue <= 0) return null;
+  return (profit / capitalYearsValue) * 100;
+}
+
+function yearMs() {
+  return 365 * 24 * 60 * 60 * 1000;
+}
+
 function buildAlerts({ latest, snapshotAgeMinutes, serviceActive, serviceName, reportData, config, health }) {
   const alerts = [];
   if (!latest) alerts.push({ level: "warn", title: "Missing snapshot", text: "No snapshots.jsonl data found yet." });
@@ -592,6 +687,7 @@ function closedBatchRow(batch) {
     realizedPnl: batch.realizedPnl || 0,
     realizedPnlInclDust: batch.realizedPnlInclDust || 0,
     realizedPctInclDust: batch.realizedPctInclDust || 0,
+    annualizedPct: batch.annualizedPct || null,
     dustQuantity: batch.dustQuantity || 0,
     holdingHours: batch.holdingHours,
     buys: batch.buys,
