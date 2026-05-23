@@ -353,7 +353,8 @@ function extractOrders({ snapshots, orderEvents }) {
     price: Number(result.fill?.price || 0),
     fee: extractFee(result),
     skipped: Boolean(result.skipped),
-    orderId: result.fill?.orderId || result.orderDetail?.orderId || result.orderResult?.result?.order_id || ""
+    orderId: result.fill?.orderId || result.orderDetail?.orderId || result.orderResult?.result?.order_id || "",
+    clientOid: result.action?.order?.client_oid || result.action?.clientOid || ""
   })));
 }
 
@@ -378,14 +379,15 @@ function extractOrdersFromLedger(orderEvents) {
         price: Number(fill.price || 0),
         fee: fill.fee || extractFee({ fill, orderDetail }),
         skipped: false,
-        orderId: fill.orderId || orderDetail.orderId || event.orderId || ""
+        orderId: fill.orderId || orderDetail.orderId || event.orderId || "",
+        clientOid: order.client_oid || action.clientOid || event.clientOid || event.client_oid || ""
       };
     })
     .sort((left, right) => new Date(left.at).getTime() - new Date(right.at).getTime());
 }
 
 function buildMakerOrderStats(orders) {
-  const makerOrders = orders.filter((order) => String(order.orderType).toUpperCase() === "LIMIT");
+  const makerOrders = latestOrderStates(orders).filter((order) => String(order.orderType).toUpperCase() === "LIMIT");
   const filled = makerOrders.filter((order) => String(order.fillStatus).toUpperCase().includes("FILLED")).length;
   const canceled = makerOrders.filter((order) => String(order.fillStatus).toUpperCase().includes("CANCEL")).length;
   const active = makerOrders.filter((order) => String(order.fillStatus).toUpperCase().includes("ACTIVE")).length;
@@ -397,6 +399,24 @@ function buildMakerOrderStats(orders) {
     fillRatePct: makerOrders.length ? (filled / makerOrders.length) * 100 : 0,
     cancelRatePct: makerOrders.length ? (canceled / makerOrders.length) * 100 : 0
   };
+}
+
+function latestOrderStates(orders) {
+  const byOrder = new Map();
+  for (const order of orders) {
+    const key = orderIdentity(order);
+    const current = byOrder.get(key);
+    if (!current || new Date(order.at || 0).getTime() >= new Date(current.at || 0).getTime()) {
+      byOrder.set(key, order);
+    }
+  }
+  return Array.from(byOrder.values()).sort((left, right) => new Date(left.at || 0).getTime() - new Date(right.at || 0).getTime());
+}
+
+function orderIdentity(order) {
+  if (order.orderId) return `order:${order.orderId}`;
+  if (order.clientOid) return `client:${order.clientOid}`;
+  return `fallback:${order.at || ""}:${order.kind || ""}:${order.side || ""}:${order.orderType || ""}:${order.limitPrice || ""}:${order.quantity || ""}`;
 }
 
 function buildFeeStats({ batches, orders, dustBank }) {
@@ -509,7 +529,8 @@ function buildAlerts({ latest, snapshotAgeMinutes, serviceActive, serviceName, r
 
 function buildHealth({ config, serviceName, serviceActive, latest, snapshotAgeMinutes, reportData, source }) {
   const service = systemctlDetails(serviceName);
-  const activeMakerOrders = reportData.orders.filter((order) => isActiveMakerOrder(order));
+  const currentOrders = latestOrderStates(reportData.orders);
+  const activeMakerOrders = currentOrders.filter((order) => isActiveMakerOrder(order));
   const timeoutMinutes = numberValue(config.env.MAKER_ORDER_TIMEOUT_MINUTES, 15);
   const staleMakerOrders = activeMakerOrders.filter((order) => {
     const age = order.at ? minutesSince(order.at) : null;
@@ -591,7 +612,8 @@ function orderRow(order) {
     limitPrice: order.limitPrice,
     fee: order.fee,
     skipped: order.skipped,
-    orderId: order.orderId
+    orderId: order.orderId,
+    clientOid: order.clientOid
   };
 }
 
