@@ -225,7 +225,7 @@ function pairDetail(pair) {
     <div class="kpi-row pair-hero">
       ${kpi(`${pair.instrument} last price`, money(pair.lastPrice, priceDigits(pair)), `Next sell at ${pair.nextSellPrice ? money(pair.nextSellPrice, priceDigits(pair)) : "-"} · Avg open ${money(pair.avgOpenPrice, priceDigits(pair))}`)}
       ${kpi("Realized incl. dust", signedMoney(pair.realizedInclDust), `Cash ${signedMoney(pair.realizedCash)}`, pair.realizedInclDust)}
-      ${kpi("P/L p.a.", pct(pair.annualizedStats?.batchAnnualizedPct), "closed batches", pair.annualizedStats?.batchAnnualizedPct)}
+      ${kpi("P/L p.a. incl. dust", pct(pair.annualizedStats?.annualizedInclSoldDustPct), "sold dust included", pair.annualizedStats?.annualizedInclSoldDustPct)}
       ${kpi("Unrealized P/L", signedMoney(pair.unrealized), `${pair.openBatches} otvorenych davok`, pair.unrealized)}
       ${kpi("Quote balance", money(pair.portfolio?.quoteTotal || 0), pair.quoteAsset)}
       ${kpi("Base balance", fmt(pair.portfolio?.baseTotal || 0, pair.baseAsset === "BTC" ? 8 : 2), pair.baseAsset)}
