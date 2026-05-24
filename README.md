@@ -120,7 +120,16 @@ Recommended path:
 
 ## Private Web Dashboard
 
-The project includes a simple read-only web dashboard with login. It does not place orders, edit `.env` files, restart services, or call the Crypto.com API.
+The project includes a simple read-only web dashboard with login. It does not place orders, edit `.env` files, restart services, or call the Crypto.com API. It is intentionally built with plain Node.js, HTML, CSS and browser JavaScript; no React and no runtime npm dependencies are required.
+
+The current dashboard can show:
+
+- combined CRO/BTC overview, total portfolio value, daily P/L, realized P/L, unrealized P/L and annualized P/L including sold dust,
+- separate pair detail pages with last price, next sell price, average open price, balances, open/closed batches, recent orders and dust bank,
+- price chart with real buy/sell markers and range switches (`24h`, `3d`, `7d`, `30d`, `year`, `all`),
+- maker order statistics with fill rate, cancel rate, active count and other statuses,
+- health/alerts page with systemd status, last tick age, stale maker checks and recent redacted error-like journal lines,
+- read-only settings view with only whitelisted non-secret fields.
 
 Create a private local config:
 
@@ -150,7 +159,7 @@ Open:
 http://127.0.0.1:8787
 ```
 
-For VPS use, keep `WEB_BIND_HOST=127.0.0.1` and access it through a protected path such as an SSH tunnel, VPN/Tailscale, Cloudflare Access, or a properly protected reverse proxy. Do not expose the dashboard publicly without access protection.
+For VPS use, the safest default is `WEB_BIND_HOST=127.0.0.1` and access through a protected path such as an SSH tunnel, VPN/Tailscale, Cloudflare Access, or a properly protected reverse proxy. If the dashboard is reachable through a public hostname, keep it behind HTTPS, a strong password, and preferably an additional access layer such as Cloudflare Access, nginx basic auth, VPN or Tailscale. Do not document the private hostname, exact VPS IP, passwords, emails, logs or generated reports in this public repository.
 
 `WEB_DATA_SOURCE=auto` tries SQLite first and falls back to JSON log files. Use `WEB_DATA_SOURCE=sqlite` to require SQLite, or `WEB_DATA_SOURCE=logs` to read only the original log files.
 
@@ -378,7 +387,7 @@ Generated files go to `reports/`:
 - `*-orders.csv`,
 - `*-daily.csv`.
 
-Reports include open batches, closed batches, recent orders, price chart, dust bank, daily summary, fee rows when available, and weighted annualized P/L.
+Reports include open batches, closed batches, recent orders, price chart with buy/sell markers, dust bank, daily summary, fee rows when available, maker order statistics, realized/unrealized P/L, and weighted annualized P/L including sold dust.
 
 Generated reports can contain private balances and trading history. Do not commit them to the public repository.
 
@@ -460,10 +469,12 @@ logs/                   Runtime logs, do not commit
 
 Planned or possible improvements:
 
-- more reliable fill tracking through order detail/trades,
-- idempotency with `client_oid` and pending orders,
-- better web UI for settings and stats,
-- maker-side experimental bot with intensive no-fee/maker trading,
+- stronger access protection for any public dashboard deployment,
+- safe web controls for whitelisted settings with diff, backup and restart flow,
+- safer service controls such as pause/resume/restart after explicit confirmation,
+- PostgreSQL option if the SQLite-backed dashboard outgrows local single-VPS operation,
+- signed fee/rebate accounting for maker rebates,
+- backtests and strategy analysis over stored hourly price history,
 - strategy analysis and write-up.
 
 ## Disclaimer

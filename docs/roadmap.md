@@ -76,6 +76,7 @@
 - [x] Generovat samostatny dashboard pre kazdy par podla aktivneho `ENV_FILE` a `LOG_DIR`.
 - [x] Pridat graf nakupov a predajov priamo do cenoveho grafu.
 - [x] Pridat realized cash P/L, realized P/L vratane dustu a unrealized P/L.
+- [x] Pridat annualized P/L / P/L p.a. vratane predaneho dustu.
 - [x] Automaticky generovat HTML dashboard po kazdom behu bota.
 - [x] Pridat denny suhrn zisku/straty.
 - [x] Pridat export do CSV.
@@ -85,6 +86,7 @@
 - [x] Pridat prehlad najziskovejsich a najhorsich davok.
 - [x] Pridat spolocny index reportov, ktory odkazuje na dashboardy vsetkych parov.
 - [x] Pridat maker order statistiky: fill rate, cancel rate, priemerny/median/najdlhsi cas do fillu, cas do cancelu a rozpad podla typu orderu.
+- [x] Opravit maker statistiky tak, aby sa pending eventy zoskupovali podla `client_oid` a `NO_FILL`/`CREATED` sa ratalo ako canceled/nevyplnene.
 
 ## Prevadzka na VPS
 
@@ -138,25 +140,30 @@
 
 ## Webove rozhranie
 
-Toto robit az po doplneni spolahliveho order ledgeru, presneho fill reconciliation a zakladnych bezpecnostnych poistiek.
+Toto robit postupne a bezpecne: najprv read-only dashboard, potom az po kontrole ochrany pristupu nastavovania a ovladanie bota.
 
 - [x] Pripravit SQLite databazu ako jednoduchy medzikrok medzi JSON logmi a web UI.
+- [x] Pridat migraciu existujucich logov do SQLite.
 - [x] Pridat jednoduchy private web server viazany defaultne na `127.0.0.1`.
 - [x] Pridat jednoduche prihlasovanie cez lokalny `.env.web` bez commitovania hesla.
 - [x] Pridat prvu read-only web appku bez Reactu a bez runtime zavislosti.
 - [x] Zobrazit oba pary CRO/BTC v spolocnom prehlade.
-- [ ] Navrhnut databazovu vrstvu tak, aby sa dala neskor prepnut zo SQLite na PostgreSQL.
-- [ ] Pre vacsie web UI/API zvazit PostgreSQL ako cielovu produkcnu databazu.
-- [x] Vytvorit lokalnu web stranku/dashboard pre bota.
 - [x] Zobrazit aktualne portfolio, zostatky a hodnotu uctu zo snapshotov.
 - [x] Zobrazit otvorene a uzavrete davky pre kazdy par samostatne.
-- [x] Zobrazit graf ceny z poslednych snapshotov.
-- [x] Zobrazit realizovany a nerealizovany P/L.
+- [x] Zobrazit realizovany, nerealizovany a denny P/L.
+- [x] Zobrazit annualized P/L / P/L p.a. vratane predaneho dustu v prehlade aj detaile paru.
 - [x] Zobrazit posledne ordery a zakladne health upozornenia.
-- [x] Pridat jednoduche prihlasovanie alebo aspon obmedzenie pristupu.
-- [x] Nasadit web UI tak, aby nebolo verejne otvorene bez ochrany: prva verzia pocita s `127.0.0.1` a SSH tunnelom.
-- [ ] Pridat detailne chybove logy bez zverejnenia citlivych udajov.
-- [ ] Pridat realne buy/sell markery do weboveho grafu, nie iba pocet orderov pri snapshote.
+- [x] Pridat realne buy/sell markery do weboveho grafu z batch trade dat.
+- [x] Pridat rozsahy grafu `24h`, `3d`, `7d`, `30d`, `year` a `all`.
+- [x] Pridat Health / Alerts stranku so stavom systemd sluzieb, last tick, stale maker kontrolou a redigovanymi error-like journal riadkami.
+- [x] Pridat read-only nastavenia z whitelistu bez secretov.
+- [x] Pridat maker order statistiky vo web UI: filled, canceled, active a other.
+- [x] Nasadit web UI tak, aby nebolo verejne otvorene bez ochrany: prva verzia pocita s lokalnym bindom alebo chranenym reverse proxy/SSH/VPN pristupom.
+- [x] Pridat favicon a login obrazok bez citlivych udajov.
+- [x] Doladit desktop a mobilny dizajn podla dodaneho wireframu.
+- [ ] Pridat silnejsiu ochranu pre verejne dostupnu domenu bez zapisania domeny/IP do dokumentacie.
+- [ ] Navrhnut databazovu vrstvu tak, aby sa dala neskor prepnut zo SQLite na PostgreSQL.
+- [ ] Pre vacsie web UI/API zvazit PostgreSQL ako cielovu produkcnu databazu.
 - [ ] Pridat export/stiahnutie existujucich HTML/CSV reportov az po kontrole ochrany pristupu.
 - [ ] Umoznit menit nastavenia strategie cez web UI iba pre whitelist bezpecnych poli.
 - [ ] Pred ulozenim nastaveni zobrazit diff, potvrdenie a vytvorit automaticku zalohu `.env`.
