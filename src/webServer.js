@@ -16,6 +16,7 @@ const port = Number(process.env.WEB_PORT || 8787);
 const sessionHours = Number(process.env.WEB_SESSION_HOURS || 8);
 const sessions = new Map();
 const EDITABLE_SETTING_KEYS = new Set([
+  "ORDER_MODE",
   "BATCH_QUANTITY",
   "AVERAGE_DOWN_QUANTITY",
   "MAX_BATCH_QUANTITY",
@@ -279,6 +280,9 @@ function settingsPlan(body) {
     if (!EDITABLE_SETTING_KEYS.has(key)) continue;
     const value = normalizeSettingValue(key, rawValue);
     const from = currentEnv[key] ?? "";
+    if (key === "ORDER_MODE" && from === "maker" && value === "market" && Number(pair.health?.activeMakerOrders || 0) > 0) {
+      throw httpError(409, "ORDER_MODE cannot switch from maker to market while active maker orders exist. Wait for fill/cancel first.");
+    }
     if (String(from) !== value) {
       changes.push({ key, from, to: value });
     }
@@ -312,6 +316,10 @@ function parseEnvFile(filePath) {
 
 function normalizeSettingValue(key, rawValue) {
   const value = String(rawValue ?? "").trim();
+  if (key === "ORDER_MODE") {
+    if (!["market", "maker"].includes(value)) throw httpError(400, "ORDER_MODE must be market or maker");
+    return value;
+  }
   if (BOOLEAN_SETTING_KEYS.has(key)) {
     if (!["true", "false"].includes(value.toLowerCase())) throw httpError(400, `${key} must be true or false`);
     return value.toLowerCase();
@@ -348,6 +356,14 @@ function settingsRiskWarnings(pair, env, changes) {
   const checkInterval = number("CHECK_INTERVAL_MINUTES", 60);
   const makerTimeout = number("MAKER_ORDER_TIMEOUT_MINUTES");
   const makerReprice = number("MAKER_REPRICE_AFTER_MINUTES");
+  const orderModeChange = changes.find((change) => change.key === "ORDER_MODE");
+
+  if (orderModeChange?.from === "maker" && orderModeChange.to === "market") {
+    warnings.push("ORDER_MODE changes from maker to market/taker; new orders may fill immediately but can pay taker fees and get worse execution price.");
+  }
+  if (orderModeChange?.from === "market" && orderModeChange.to === "maker") {
+    warnings.push("ORDER_MODE changes from market/taker to maker; orders may wait in the order book and can become stale if the price moves away.");
+  }
 
   if (maxBatchQty > 0 && batchQty > maxBatchQty) {
     warnings.push("BATCH_QUANTITY is higher than MAX_BATCH_QUANTITY, so a new base batch may already exceed the per-batch cap.");

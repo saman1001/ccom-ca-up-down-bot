@@ -13,6 +13,7 @@ const state = {
 const CHART_RANGES = ["24h", "3d", "7d", "30d", "year", "all"];
 const DAILY_RANGES = ["7d", "30d", "all"];
 const EDITABLE_SETTINGS = [
+  "ORDER_MODE",
   "BATCH_QUANTITY",
   "AVERAGE_DOWN_QUANTITY",
   "MAX_BATCH_QUANTITY",
@@ -38,14 +39,20 @@ const READONLY_SETTINGS = [
   "QUOTE_ASSET",
   "LOG_DIR",
   "STRATEGY",
-  "ORDER_MODE",
   "DRY_RUN",
   "ENABLE_TRADING",
   "SERVICE_NAME"
 ];
 const ALL_SETTINGS = [...READONLY_SETTINGS, ...EDITABLE_SETTINGS];
 const BOOLEAN_SETTINGS = new Set(["BUY_BASE_BATCH_EVERY_RUN"]);
+const SETTING_OPTIONS = {
+  ORDER_MODE: [
+    { value: "maker", label: "maker limit" },
+    { value: "market", label: "market / taker" }
+  ]
+};
 const DEFAULT_SETTING_VALUES = {
+  ORDER_MODE: "market",
   MAX_OPEN_BATCHES: "0",
   DAILY_BASE_BUY_LIMIT: "0",
   FORCE_BASE_BUY_WEEKLY_LIMIT: "0",
@@ -406,6 +413,19 @@ function settingsField(key, value, pair) {
   const enableControl = !isSet && editable
     ? `<div class="setting-enable"><input type="checkbox" data-enable-setting="${escapeHtml(key)}"> <span>Use this setting</span></div>`
     : "";
+  if (SETTING_OPTIONS[key]) {
+    const selected = fieldValue || SETTING_OPTIONS[key][0].value;
+    return `
+      <label class="${fieldClass}">
+        <span>${escapeHtml(key)} <em>${escapeHtml(status)}</em></span>
+        ${enableControl}
+        <select name="${escapeHtml(key)}" data-setting-input="${escapeHtml(key)}" ${disabled}>
+          ${SETTING_OPTIONS[key].map((option) => `<option value="${escapeHtml(option.value)}" ${selected === option.value ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}
+        </select>
+        <small>${escapeHtml(help)}</small>
+      </label>
+    `;
+  }
   if (BOOLEAN_SETTINGS.has(key)) {
     const normalized = fieldValue.toLowerCase() === "true" ? "true" : "false";
     return `
