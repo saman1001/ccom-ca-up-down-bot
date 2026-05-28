@@ -5,6 +5,7 @@ const state = {
   batchTab: "open",
   chartRange: "7d",
   dailyRange: "7d",
+  settingsPair: "BTC_USD",
   settingsPreview: null,
   settingsMessage: null
 };
@@ -32,6 +33,26 @@ const EDITABLE_SETTINGS = [
   "MAKER_REPRICE_AFTER_MINUTES"
 ];
 const BOOLEAN_SETTINGS = new Set(["BUY_BASE_BATCH_EVERY_RUN"]);
+const SETTING_HELP = {
+  BATCH_QUANTITY: "Velkost zakladnej davky, ktoru bot kupi pri beznom base buy.",
+  AVERAGE_DOWN_QUANTITY: "Velkost dokupu pri poklese ceny; ak je prazdna, pouzije sa zakladna davka.",
+  MAX_BATCH_QUANTITY: "Maximalne mnozstvo, kam moze jedna otvorena davka narast dokupmi.",
+  MAX_OPEN_BATCHES: "Maximalny pocet otvorenych davok; 0 znamena bez limitu.",
+  DAILY_BASE_BUY_LIMIT: "Maximalny pocet zakladnych nakupov za jeden UTC den; 0 znamena bez limitu.",
+  FORCE_BASE_BUY_WEEKLY_LIMIT: "Minimalny pocet zakladnych nakupov za UTC tyzden, ktory ma bot skusit dodrzat.",
+  BASE_BUY_COOLDOWN_MINUTES: "Minimalna pauza medzi zakladnymi nakupmi, aby restart nespravil extra nakup.",
+  AVERAGE_DOWN_DROP_PCT: "Pokles pod priemer davky v percentach, pri ktorom bot dokupi do tejto davky.",
+  TAKE_PROFIT_RISE_PCT: "Rast nad priemer davky v percentach, pri ktorom bot preda celu davku.",
+  BUY_BASE_BATCH_EVERY_RUN: "Ci sa bot pri kazdom ticku moze pokusit otvorit novu zakladnu davku.",
+  DUST_SELL_QUANTITY: "Minimalne mnozstvo dustu, pri ktorom sa bot moze pokusit dust predat.",
+  MIN_QUOTE_BALANCE: "Minimalny USD zostatok, pod ktorym bot prestane robit nove nakupy.",
+  MAX_SUSPICIOUS_PRICE_MOVE_PCT: "Maximalny povoleny skok ceny medzi tickmi; vacsi pohyb bot vyhodnoti ako podozrivy.",
+  CHECK_INTERVAL_MINUTES: "Ako casto ma watch rezim spustat kontrolu a obchodnu logiku.",
+  MAKER_BOOK_LEVEL: "Uroven order booku, z ktorej bot vybera maker limit cenu.",
+  MAKER_MAX_SPREAD_PCT: "Maximalny spread v percentach, pri ktorom je maker order este povoleny.",
+  MAKER_ORDER_TIMEOUT_MINUTES: "Po kolkych minutach sa aktivny maker order povazuje za prilis stary.",
+  MAKER_REPRICE_AFTER_MINUTES: "Po kolkych minutach moze bot zrusit a prehodit maker order na novu cenu."
+};
 
 const app = document.getElementById("app");
 
@@ -46,6 +67,7 @@ async function init() {
     }
     state.data = await response.json();
     state.pair = state.data.pairs[0]?.instrument || "BTC_USD";
+    state.settingsPair = pairByInstrument(state.settingsPair)?.instrument || state.pair;
     render();
   } catch (error) {
     app.innerHTML = `<div class="loading">Dashboard sa nepodarilo nacitat: ${escapeHtml(error.message)}</div>`;
@@ -294,12 +316,14 @@ function pairDetail(pair) {
 }
 
 function settingsPage() {
+  const activePair = pairByInstrument(state.settingsPair) || state.data.pairs[0];
   return `
     ${banner("warn", "Nastavenia menia realny bot", "Upravovat sa daju iba whitelist polia. API kluce, emaily, LOG_DIR, trading ON/OFF a pary sa cez web nemenia. Pred ulozenim sa ukaze diff a vytvori sa zaloha .env.")}
     ${state.settingsMessage ? banner(state.settingsMessage.level, state.settingsMessage.title, state.settingsMessage.text) : ""}
-    <div class="grid-2">
-      ${state.data.pairs.map(settingsCard).join("")}
+    <div class="settings-pair-tabs tabs">
+      ${state.data.pairs.map((pair) => `<button data-settings-pair="${pair.instrument}" class="${activePair?.instrument === pair.instrument ? "active" : ""}">${pair.instrument.replace("_", " / ")}</button>`).join("")}
     </div>
+    ${activePair ? settingsCard(activePair) : `<div class="empty">Par sa nenasiel.</div>`}
   `;
 }
 
@@ -337,6 +361,7 @@ function settingsCard(pair) {
 }
 
 function settingsField(key, value) {
+  const help = SETTING_HELP[key] || "Bezpecne whitelist nastavenie strategie pre tento par.";
   if (BOOLEAN_SETTINGS.has(key)) {
     const normalized = String(value ?? "").toLowerCase() === "true" ? "true" : "false";
     return `
@@ -346,6 +371,7 @@ function settingsField(key, value) {
           <option value="true" ${normalized === "true" ? "selected" : ""}>true</option>
           <option value="false" ${normalized === "false" ? "selected" : ""}>false</option>
         </select>
+        <small>${escapeHtml(help)}</small>
       </label>
     `;
   }
@@ -353,6 +379,7 @@ function settingsField(key, value) {
     <label class="setting-field">
       <span>${escapeHtml(key)}</span>
       <input name="${escapeHtml(key)}" value="${escapeHtml(String(value ?? ""))}" inputmode="decimal" autocomplete="off">
+      <small>${escapeHtml(help)}</small>
     </label>
   `;
 }
@@ -803,6 +830,14 @@ function bindEvents() {
   document.querySelectorAll("[data-daily-range]").forEach((button) => {
     button.addEventListener("click", () => {
       state.dailyRange = button.dataset.dailyRange;
+      render();
+    });
+  });
+  document.querySelectorAll("[data-settings-pair]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.settingsPair = button.dataset.settingsPair;
+      state.settingsPreview = null;
+      state.settingsMessage = null;
       render();
     });
   });

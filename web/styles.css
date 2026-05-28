@@ -396,6 +396,10 @@ td { font-size: 13px; }
 
 .settings-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .settings-edit-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px; }
+.settings-pair-tabs {
+  align-self: flex-start;
+  width: fit-content;
+}
 .setting {
   display: flex;
   justify-content: space-between;
@@ -411,11 +415,21 @@ td { font-size: 13px; }
   display: grid;
   gap: 6px;
   min-width: 0;
+  align-content: start;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #fff;
+  padding: 10px;
 }
 .setting-field span {
   color: var(--muted);
   font: 11px var(--mono);
   overflow-wrap: anywhere;
+}
+.setting-field small {
+  color: var(--muted);
+  font-size: 11.5px;
+  line-height: 1.35;
 }
 .setting-field input,
 .setting-field select {
