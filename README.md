@@ -1,5 +1,7 @@
 # ccom-ca-up-down-bot
 
+![CCOM Batch Bot CA Up/Down](web/login-hero.png)
+
 Experimental Crypto.com Exchange trading bot for batch-based CRO/USD and BTC/USD trading.
 
 The project is intentionally simple: plain Node.js, no npm runtime dependencies, SQLite runtime storage, file-based safety logs, and HTML/CSV reports. It is a learning and operations project, not investment advice.
