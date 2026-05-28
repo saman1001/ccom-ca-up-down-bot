@@ -199,7 +199,7 @@ function sidebar() {
   return `
     <aside class="sidebar">
       <div class="brand">
-        <div class="mark">BB</div>
+        <div class="mark"><img src="/favicon.png" alt="Batch Bot"></div>
         <div>
           <div class="brand-name">Batch Bot</div>
           <div class="brand-sub">Crypto.com DCA strategy</div>

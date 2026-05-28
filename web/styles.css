@@ -67,9 +67,10 @@ button, input { font: inherit; }
 .mark {
   width: 28px; height: 28px; border-radius: 7px;
   display: grid; place-items: center;
-  background: var(--text); color: #fff;
-  font: 600 13px var(--mono);
+  background: var(--text);
+  overflow: hidden;
 }
+.mark img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .brand-name { font-weight: 600; letter-spacing: -.01em; }
 .brand-sub { color: var(--muted); font-size: 11px; }
 .section-label {
