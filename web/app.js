@@ -3,10 +3,12 @@ const state = {
   view: "overview",
   pair: "BTC_USD",
   batchTab: "open",
-  chartRange: "7d"
+  chartRange: "7d",
+  dailyRange: "7d"
 };
 
 const CHART_RANGES = ["24h", "3d", "7d", "30d", "year", "all"];
+const DAILY_RANGES = ["7d", "30d", "all"];
 
 const app = document.getElementById("app");
 
@@ -393,7 +395,7 @@ function dailySummaryCard() {
     <div class="card">
       <div class="card-head">
         <h2>Daily realized P/L</h2><span class="sub">closed batches + sold dust · UTC</span>
-        <div class="head-right tabs"><button class="active">7d</button><button disabled>30d</button><button disabled>All</button></div>
+        <div class="head-right tabs">${DAILY_RANGES.map((range) => `<button data-daily-range="${range}" class="${state.dailyRange === range ? "active" : ""}">${range === "all" ? "All" : range}</button>`).join("")}</div>
       </div>
       <div class="card-body">
         ${rows.length ? dailyBars(rows) : `<div class="empty">Zatial nie su denne P/L data.</div>`}
@@ -415,7 +417,11 @@ function combinedDailyPnlRows() {
       rows.set(row.day, current);
     }
   }
-  return lastUtcDays(7).map((day) => rows.get(day) || {
+  if (state.dailyRange === "all") {
+    return Array.from(rows.values()).sort((a, b) => a.day.localeCompare(b.day));
+  }
+  const count = state.dailyRange === "30d" ? 30 : 7;
+  return lastUtcDays(count).map((day) => rows.get(day) || {
     day,
     realizedInclSoldDust: 0,
     realizedCash: 0,
@@ -426,7 +432,7 @@ function combinedDailyPnlRows() {
 
 function dailyBars(rows) {
   const max = Math.max(...rows.map((row) => Math.abs(Number(row.realizedInclSoldDust || 0))), 1);
-  return `<div class="bars" aria-label="Daily realized P/L">
+  return `<div class="bars bars-${state.dailyRange}" aria-label="Daily realized P/L">
     <div class="bar-zero"></div>
     ${rows.map((row) => {
       const value = Number(row.realizedInclSoldDust || 0);
@@ -699,6 +705,12 @@ function bindEvents() {
   document.querySelectorAll("[data-chart-range]").forEach((button) => {
     button.addEventListener("click", () => {
       state.chartRange = button.dataset.chartRange;
+      render();
+    });
+  });
+  document.querySelectorAll("[data-daily-range]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.dailyRange = button.dataset.dailyRange;
       render();
     });
   });

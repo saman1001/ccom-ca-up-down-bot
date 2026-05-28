@@ -156,7 +156,7 @@ function buildPairPayload(config) {
     openBatchRows: reportData.openBatches.slice(0, 50).map((batch) => openBatchRow(batch, reportData.lastPrice, config)),
     closedBatchRows: reportData.closedStats.slice(-50).reverse().map(closedBatchRow),
     recentOrders: reportData.recentOrders.slice(0, 25).map(orderRow),
-    dailySummaries: reportData.dailySummaries.slice(0, 20),
+    dailySummaries: reportData.dailySummaries,
     safeSettings,
     health,
     alerts

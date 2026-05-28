@@ -322,7 +322,11 @@ button, input { font: inherit; }
   gap: 14px;
   align-items: stretch;
   padding: 18px 10px 20px;
+  overflow-x: auto;
+  overflow-y: hidden;
 }
+.bars-30d { grid-template-columns: repeat(30, minmax(24px, 1fr)); gap: 7px; }
+.bars-all { grid-template-columns: repeat(auto-fit, minmax(26px, 1fr)); gap: 8px; }
 .bar-zero {
   position: absolute;
   left: 10px;
@@ -339,10 +343,12 @@ button, input { font: inherit; }
 .bar {
   position: absolute;
   left: 50%;
-  width: min(42px, 70%);
+  width: min(42px, 68%);
   transform: translateX(-50%);
   border-radius: 4px 4px 0 0;
 }
+.bars-30d .bar { width: min(22px, 78%); }
+.bars-all .bar { width: min(24px, 74%); }
 .bar.positive { background: rgba(35, 132, 90, .82); }
 .bar.negative {
   background: rgba(187, 45, 34, .82);
@@ -365,6 +371,10 @@ button, input { font: inherit; }
   color: var(--muted);
   font: 11px var(--mono);
 }
+.bars-30d .bar-label,
+.bars-all .bar-label { font-size: 10px; }
+.bars-30d .bar-value,
+.bars-all .bar-value { font-size: 9px; }
 .chart-note {
   margin: -2px 10px 12px;
   color: var(--muted);
