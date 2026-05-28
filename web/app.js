@@ -4,11 +4,34 @@ const state = {
   pair: "BTC_USD",
   batchTab: "open",
   chartRange: "7d",
-  dailyRange: "7d"
+  dailyRange: "7d",
+  settingsPreview: null,
+  settingsMessage: null
 };
 
 const CHART_RANGES = ["24h", "3d", "7d", "30d", "year", "all"];
 const DAILY_RANGES = ["7d", "30d", "all"];
+const EDITABLE_SETTINGS = [
+  "BATCH_QUANTITY",
+  "AVERAGE_DOWN_QUANTITY",
+  "MAX_BATCH_QUANTITY",
+  "MAX_OPEN_BATCHES",
+  "DAILY_BASE_BUY_LIMIT",
+  "FORCE_BASE_BUY_WEEKLY_LIMIT",
+  "BASE_BUY_COOLDOWN_MINUTES",
+  "AVERAGE_DOWN_DROP_PCT",
+  "TAKE_PROFIT_RISE_PCT",
+  "BUY_BASE_BATCH_EVERY_RUN",
+  "DUST_SELL_QUANTITY",
+  "MIN_QUOTE_BALANCE",
+  "MAX_SUSPICIOUS_PRICE_MOVE_PCT",
+  "CHECK_INTERVAL_MINUTES",
+  "MAKER_BOOK_LEVEL",
+  "MAKER_MAX_SPREAD_PCT",
+  "MAKER_ORDER_TIMEOUT_MINUTES",
+  "MAKER_REPRICE_AFTER_MINUTES"
+];
+const BOOLEAN_SETTINGS = new Set(["BUY_BASE_BATCH_EVERY_RUN"]);
 
 const app = document.getElementById("app");
 
@@ -143,7 +166,7 @@ function topbar() {
     <div class="topbar">
       <div class="crumbs">Workspace / <strong>${title}</strong></div>
       <div class="top-actions">
-        <span class="chip">Read-only <strong>ON</strong></span>
+        <span class="chip">Orders <strong>read-only</strong></span>
         <span class="chip">Data <strong>${dataSourceLabel()}</strong></span>
         <span class="chip">Trading <strong class="${anyLiveTrading ? "neg" : ""}">${anyLiveTrading ? "ENABLED" : "OFF"}</strong></span>
         <span class="chip">Generated <strong>${shortTime(state.data.generatedAt)}</strong></span>
@@ -170,7 +193,7 @@ function overviewPage() {
   const totals = state.data.totals;
   const alerts = state.data.alerts;
   return `
-    ${alerts.length ? banner("warn", `${alerts.length} upozorneni na kontrolu`, alerts.slice(0, 2).map((a) => `${a.instrument}: ${a.title}`).join(" | ")) : banner("info", "Dashboard je read-only", "Zobrazuje logy a stav. Neposiela ordery, nemeni nastavenia ani nerestartuje sluzby.")}
+    ${alerts.length ? banner("warn", `${alerts.length} upozorneni na kontrolu`, alerts.slice(0, 2).map((a) => `${a.instrument}: ${a.title}`).join(" | ")) : banner("info", "Dashboard je bez manualnych orderov", "Zobrazuje logy a stav. Nastavenia vie menit iba cez whitelist s diffom, zalohou a restartom sluzby.")}
     <div class="kpi-row">
       ${kpi("Total portfolio", money(totals.portfolioValue), "Podla poslednych snapshotov")}
       ${kpi("Today P/L", signedMoney(totals.todayRealizedPnl), "realized dnes", totals.todayRealizedPnl)}
@@ -272,20 +295,89 @@ function pairDetail(pair) {
 
 function settingsPage() {
   return `
-    ${banner("info", "Nastavenia su zatial iba na citanie", "Editacia .env, restart sluzieb a ovladanie bota su odlozene do dalsich faz.")}
+    ${banner("warn", "Nastavenia menia realny bot", "Upravovat sa daju iba whitelist polia. API kluce, emaily, LOG_DIR, trading ON/OFF a pary sa cez web nemenia. Pred ulozenim sa ukaze diff a vytvori sa zaloha .env.")}
+    ${state.settingsMessage ? banner(state.settingsMessage.level, state.settingsMessage.title, state.settingsMessage.text) : ""}
     <div class="grid-2">
-      ${state.data.pairs.map((pair) => `
-        <div class="card">
-          <div class="card-head"><h2>${pair.instrument.replace("_", " / ")}</h2><span class="sub">${escapeHtml(pair.envFile)}</span></div>
-          <div class="card-body">
-            <div class="settings-list">
-              ${Object.entries(pair.safeSettings).map(([key, value]) => `
-                <div class="setting"><span>${escapeHtml(key)}</span><span>${escapeHtml(String(value ?? ""))}</span></div>
-              `).join("")}
-            </div>
+      ${state.data.pairs.map(settingsCard).join("")}
+    </div>
+  `;
+}
+
+function settingsCard(pair) {
+  const preview = state.settingsPreview?.instrument === pair.instrument ? state.settingsPreview : null;
+  return `
+    <div class="card">
+      <div class="card-head">
+        <h2>${pair.instrument.replace("_", " / ")}</h2>
+        <span class="sub">${escapeHtml(pair.envFile)} · ${escapeHtml(pair.serviceName)}</span>
+      </div>
+      <div class="card-body">
+        <form class="settings-form" data-settings-form="${pair.instrument}">
+          <div class="settings-edit-list">
+            ${EDITABLE_SETTINGS.filter((key) => Object.prototype.hasOwnProperty.call(pair.safeSettings, key)).map((key) => settingsField(key, pair.safeSettings[key])).join("")}
           </div>
+          <div class="settings-actions">
+            <button class="btn" type="submit">Review changes</button>
+            <button class="btn" type="button" data-settings-reset="${pair.instrument}">Reset</button>
+          </div>
+        </form>
+        ${preview ? settingsPreview(pair, preview) : ""}
+        <details class="readonly-settings">
+          <summary>Read-only fields</summary>
+          <div class="settings-list">
+            ${Object.entries(pair.safeSettings)
+              .filter(([key]) => !EDITABLE_SETTINGS.includes(key))
+              .map(([key, value]) => `<div class="setting"><span>${escapeHtml(key)}</span><span>${escapeHtml(String(value ?? ""))}</span></div>`)
+              .join("")}
+          </div>
+        </details>
+      </div>
+    </div>
+  `;
+}
+
+function settingsField(key, value) {
+  if (BOOLEAN_SETTINGS.has(key)) {
+    const normalized = String(value ?? "").toLowerCase() === "true" ? "true" : "false";
+    return `
+      <label class="setting-field">
+        <span>${escapeHtml(key)}</span>
+        <select name="${escapeHtml(key)}">
+          <option value="true" ${normalized === "true" ? "selected" : ""}>true</option>
+          <option value="false" ${normalized === "false" ? "selected" : ""}>false</option>
+        </select>
+      </label>
+    `;
+  }
+  return `
+    <label class="setting-field">
+      <span>${escapeHtml(key)}</span>
+      <input name="${escapeHtml(key)}" value="${escapeHtml(String(value ?? ""))}" inputmode="decimal" autocomplete="off">
+    </label>
+  `;
+}
+
+function settingsPreview(pair, preview) {
+  return `
+    <div class="settings-preview">
+      <div class="mini-title">Diff before apply</div>
+      ${preview.changes.length ? `
+        <div class="table-wrap compact"><table>
+          <thead><tr><th>Key</th><th>Current</th><th>New</th></tr></thead>
+          <tbody>${preview.changes.map((change) => `
+            <tr>
+              <td class="mono">${escapeHtml(change.key)}</td>
+              <td class="mono">${escapeHtml(String(change.from ?? ""))}</td>
+              <td class="mono">${escapeHtml(String(change.to ?? ""))}</td>
+            </tr>
+          `).join("")}</tbody>
+        </table></div>
+        <div class="settings-actions">
+          <button class="btn btn-primary" type="button" data-settings-apply="${pair.instrument}">Apply & restart ${escapeHtml(pair.serviceName)}</button>
+          <button class="btn" type="button" data-settings-cancel>Cancel</button>
         </div>
-      `).join("")}
+      ` : `<div class="empty compact">Ziadne zmeny na ulozenie.</div>`}
+      ${preview.warnings?.length ? `<ul class="settings-warnings">${preview.warnings.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>` : ""}
     </div>
   `;
 }
@@ -714,7 +806,79 @@ function bindEvents() {
       render();
     });
   });
+  document.querySelectorAll("[data-settings-form]").forEach((form) => {
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      await reviewSettings(form);
+    });
+  });
+  document.querySelectorAll("[data-settings-apply]").forEach((button) => {
+    button.addEventListener("click", async () => applySettings(button.dataset.settingsApply));
+  });
+  document.querySelectorAll("[data-settings-cancel]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.settingsPreview = null;
+      state.settingsMessage = null;
+      render();
+    });
+  });
+  document.querySelectorAll("[data-settings-reset]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.settingsPreview = null;
+      state.settingsMessage = null;
+      render();
+    });
+  });
   document.querySelector("[data-refresh]")?.addEventListener("click", init);
+}
+
+async function reviewSettings(form) {
+  const instrument = form.dataset.settingsForm;
+  state.settingsMessage = null;
+  try {
+    state.settingsPreview = await postJson("/api/settings/preview", {
+      instrument,
+      settings: Object.fromEntries(new FormData(form).entries())
+    });
+  } catch (error) {
+    state.settingsPreview = null;
+    state.settingsMessage = { level: "error", title: "Settings preview failed", text: error.message };
+  }
+  render();
+}
+
+async function applySettings(instrument) {
+  if (!state.settingsPreview || state.settingsPreview.instrument !== instrument) return;
+  try {
+    const result = await postJson("/api/settings/apply", {
+      instrument,
+      settings: Object.fromEntries(state.settingsPreview.changes.map((change) => [change.key, change.to])),
+      restart: true
+    });
+    state.settingsPreview = null;
+    state.settingsMessage = {
+      level: "info",
+      title: "Settings saved",
+      text: `${result.instrument || instrument}: backup ${result.backupPath || "-"}, restart ${result.restarted ? "OK" : "not requested"}.`
+    };
+    await init();
+  } catch (error) {
+    state.settingsMessage = { level: "error", title: "Settings apply failed", text: error.message };
+    render();
+  }
+}
+
+async function postJson(url, body) {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || data.ok === false) {
+    throw new Error(data.error || data.restartError || `Request failed (${response.status})`);
+  }
+  return data;
 }
 
 function pairByInstrument(instrument) {

@@ -44,12 +44,12 @@ export function buildDashboardPayload(options = {}) {
 
   return {
     generatedAt: new Date().toISOString(),
-    readOnly: true,
+    readOnly: false,
     pairs,
     totals: buildTotals(pairs),
     alerts,
     notes: [
-      "Read-only dashboard. Web UI does not place orders, edit env files, restart services, or call Crypto.com API.",
+      "Dashboard does not place orders or call Crypto.com API. Settings writes are limited to whitelisted non-secret fields.",
       "Secrets such as API keys, email addresses, SMTP credentials and exact VPS IP are never included in this payload."
     ]
   };

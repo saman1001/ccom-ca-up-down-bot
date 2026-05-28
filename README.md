@@ -120,7 +120,7 @@ Recommended path:
 
 ## Private Web Dashboard
 
-The project includes a simple read-only web dashboard with login. It does not place orders, edit `.env` files, restart services, or call the Crypto.com API. It is intentionally built with plain Node.js, HTML, CSS and browser JavaScript; no React and no runtime npm dependencies are required.
+The project includes a private web dashboard with login. It does not place orders or call the Crypto.com API. It can edit only whitelisted non-secret strategy settings, shows a diff before saving, creates an automatic `.env` backup, and restarts only the matching bot service after confirmation. It is intentionally built with plain Node.js, HTML, CSS and browser JavaScript; no React and no runtime npm dependencies are required.
 
 The current dashboard can show:
 
@@ -129,7 +129,7 @@ The current dashboard can show:
 - price chart with real buy/sell markers and range switches (`24h`, `3d`, `7d`, `30d`, `year`, `all`),
 - maker order statistics with fill rate, cancel rate, active count and other statuses,
 - health/alerts page with systemd status, last tick age, stale maker checks and recent redacted error-like journal lines,
-- read-only settings view with only whitelisted non-secret fields.
+- settings view with editable whitelisted non-secret strategy fields, diff preview, `.env` backup and service restart.
 
 Create a private local config:
 

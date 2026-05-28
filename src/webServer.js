@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { loadDotEnv } from "./config.js";
 import { buildDashboardPayload } from "./webData.js";
@@ -14,13 +15,34 @@ const host = process.env.WEB_BIND_HOST || "127.0.0.1";
 const port = Number(process.env.WEB_PORT || 8787);
 const sessionHours = Number(process.env.WEB_SESSION_HOURS || 8);
 const sessions = new Map();
+const EDITABLE_SETTING_KEYS = new Set([
+  "BATCH_QUANTITY",
+  "AVERAGE_DOWN_QUANTITY",
+  "MAX_BATCH_QUANTITY",
+  "MAX_OPEN_BATCHES",
+  "DAILY_BASE_BUY_LIMIT",
+  "FORCE_BASE_BUY_WEEKLY_LIMIT",
+  "BASE_BUY_COOLDOWN_MINUTES",
+  "AVERAGE_DOWN_DROP_PCT",
+  "TAKE_PROFIT_RISE_PCT",
+  "BUY_BASE_BATCH_EVERY_RUN",
+  "DUST_SELL_QUANTITY",
+  "MIN_QUOTE_BALANCE",
+  "MAX_SUSPICIOUS_PRICE_MOVE_PCT",
+  "CHECK_INTERVAL_MINUTES",
+  "MAKER_BOOK_LEVEL",
+  "MAKER_MAX_SPREAD_PCT",
+  "MAKER_ORDER_TIMEOUT_MINUTES",
+  "MAKER_REPRICE_AFTER_MINUTES"
+]);
+const BOOLEAN_SETTING_KEYS = new Set(["BUY_BASE_BATCH_EVERY_RUN"]);
 
 const server = http.createServer(async (req, res) => {
   try {
     await handleRequest(req, res);
   } catch (error) {
     console.error(error);
-    sendJson(res, 500, { error: "Internal server error" });
+    sendJson(res, error.status || 500, { error: error.status ? error.message : "Internal server error" });
   }
 });
 
@@ -65,6 +87,14 @@ async function handleRequest(req, res) {
     return sendJson(res, 200, buildDashboardPayload());
   }
 
+  if (req.method === "POST" && pathname === "/api/settings/preview") {
+    return handleSettingsPreview(req, res);
+  }
+
+  if (req.method === "POST" && pathname === "/api/settings/apply") {
+    return handleSettingsApply(req, res);
+  }
+
   if (req.method === "GET" && (pathname === "/" || pathname === "/index.html")) {
     return sendFile(res, path.join(publicDir, "index.html"));
   }
@@ -76,6 +106,58 @@ async function handleRequest(req, res) {
   }
 
   sendText(res, 405, "Method not allowed");
+}
+
+async function handleSettingsPreview(req, res) {
+  const body = await readJsonBody(req);
+  const result = settingsPlan(body);
+  return sendJson(res, 200, {
+    ok: true,
+    instrument: result.pair.instrument,
+    envFile: result.pair.envFile,
+    serviceName: result.pair.serviceName,
+    changes: result.changes,
+    warnings: result.warnings
+  });
+}
+
+async function handleSettingsApply(req, res) {
+  const body = await readJsonBody(req);
+  const result = settingsPlan(body);
+  if (!result.changes.length) {
+    return sendJson(res, 200, { ok: true, message: "No changes", changes: [], restarted: false });
+  }
+
+  const backupPath = backupEnvFile(result.envPath);
+  writeEnvFile(result.envPath, result.changes);
+
+  let restarted = false;
+  let restartError = "";
+  if (body.restart !== false) {
+    const restart = restartService(result.pair.serviceName);
+    restarted = restart.ok;
+    restartError = restart.error;
+    if (!restart.ok) {
+      return sendJson(res, 500, {
+        ok: false,
+        error: "Settings were saved, but service restart failed.",
+        backupPath: displayPath(backupPath),
+        changes: result.changes,
+        restartError
+      });
+    }
+  }
+
+  return sendJson(res, 200, {
+    ok: true,
+    message: restarted ? "Settings saved and service restarted." : "Settings saved.",
+    instrument: result.pair.instrument,
+    envFile: result.pair.envFile,
+    serviceName: result.pair.serviceName,
+    backupPath: displayPath(backupPath),
+    changes: result.changes,
+    restarted
+  });
 }
 
 async function handleLogin(req, res) {
@@ -168,6 +250,118 @@ function readBody(req) {
     req.on("end", () => resolve(body));
     req.on("error", reject);
   });
+}
+
+async function readJsonBody(req) {
+  const body = await readBody(req);
+  try {
+    return JSON.parse(body || "{}");
+  } catch {
+    const error = new Error("Invalid JSON body");
+    error.status = 400;
+    throw error;
+  }
+}
+
+function settingsPlan(body) {
+  const instrument = String(body.instrument || "").trim();
+  const payload = buildDashboardPayload();
+  const pair = payload.pairs.find((item) => item.instrument === instrument);
+  if (!pair) throw httpError(404, "Pair not found");
+
+  const envPath = resolveEnvFile(pair.envFile);
+  const currentEnv = parseEnvFile(envPath);
+  const submitted = body.settings && typeof body.settings === "object" ? body.settings : {};
+  const changes = [];
+  const warnings = [];
+
+  for (const [key, rawValue] of Object.entries(submitted)) {
+    if (!EDITABLE_SETTING_KEYS.has(key)) continue;
+    const value = normalizeSettingValue(key, rawValue);
+    const from = currentEnv[key] ?? "";
+    if (String(from) !== value) {
+      changes.push({ key, from, to: value });
+    }
+  }
+
+  if (body.settings && Object.keys(submitted).some((key) => !EDITABLE_SETTING_KEYS.has(key))) {
+    warnings.push("Some submitted fields were ignored because they are not editable from the web UI.");
+  }
+
+  return { pair, envPath, changes, warnings };
+}
+
+function resolveEnvFile(envFile) {
+  const cwd = process.cwd();
+  const fullPath = path.resolve(cwd, envFile);
+  if (!fullPath.startsWith(cwd + path.sep)) throw httpError(400, "Invalid env file path");
+  if (!fs.existsSync(fullPath)) throw httpError(404, "Env file not found");
+  return fullPath;
+}
+
+function parseEnvFile(filePath) {
+  const env = {};
+  for (const line of fs.readFileSync(filePath, "utf8").split(/\r?\n/)) {
+    const match = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/);
+    if (!match) continue;
+    env[match[1]] = match[2].trim().replace(/^["']|["']$/g, "");
+  }
+  return env;
+}
+
+function normalizeSettingValue(key, rawValue) {
+  const value = String(rawValue ?? "").trim();
+  if (BOOLEAN_SETTING_KEYS.has(key)) {
+    if (!["true", "false"].includes(value.toLowerCase())) throw httpError(400, `${key} must be true or false`);
+    return value.toLowerCase();
+  }
+  if (!/^-?\d+(\.\d+)?$/.test(value)) throw httpError(400, `${key} must be a number`);
+  const number = Number(value);
+  if (!Number.isFinite(number)) throw httpError(400, `${key} must be a valid number`);
+  if (number < 0) throw httpError(400, `${key} must be zero or greater`);
+  if (key === "CHECK_INTERVAL_MINUTES" && number <= 0) throw httpError(400, `${key} must be greater than zero`);
+  return value;
+}
+
+function backupEnvFile(filePath) {
+  const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\..+$/, "").replace("T", "-");
+  const backupPath = `${filePath}.backup-${stamp}`;
+  fs.copyFileSync(filePath, backupPath);
+  return backupPath;
+}
+
+function writeEnvFile(filePath, changes) {
+  const changeMap = new Map(changes.map((change) => [change.key, change.to]));
+  const seen = new Set();
+  const lines = fs.readFileSync(filePath, "utf8").split(/\r?\n/).map((line) => {
+    const match = line.match(/^(\s*)([A-Z0-9_]+)(\s*=\s*)(.*)$/);
+    if (!match || !changeMap.has(match[2])) return line;
+    seen.add(match[2]);
+    return `${match[1]}${match[2]}${match[3]}${changeMap.get(match[2])}`;
+  });
+  for (const [key, value] of changeMap) {
+    if (!seen.has(key)) lines.push(`${key}=${value}`);
+  }
+  fs.writeFileSync(filePath, lines.join("\n"), "utf8");
+}
+
+function restartService(serviceName) {
+  if (!/^ccom-updown(-btc)?$/.test(serviceName)) {
+    return { ok: false, error: `Refusing to restart unexpected service ${serviceName}` };
+  }
+  const result = spawnSync("systemctl", ["restart", serviceName], { encoding: "utf8" });
+  if (result.status === 0) return { ok: true, error: "" };
+  return { ok: false, error: (result.stderr || result.stdout || `systemctl exited ${result.status}`).trim() };
+}
+
+function displayPath(filePath) {
+  return path.relative(process.cwd(), filePath) || ".";
+}
+
+function httpError(status, message) {
+  const error = new Error(message);
+  error.status = status;
+  return error;
 }
 
 function sendFile(res, filePath) {

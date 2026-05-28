@@ -165,8 +165,8 @@ Toto robit postupne a bezpecne: najprv read-only dashboard, potom az po kontrole
 - [ ] Navrhnut databazovu vrstvu tak, aby sa dala neskor prepnut zo SQLite na PostgreSQL.
 - [ ] Pre vacsie web UI/API zvazit PostgreSQL ako cielovu produkcnu databazu.
 - [ ] Pridat export/stiahnutie existujucich HTML/CSV reportov az po kontrole ochrany pristupu.
-- [ ] Umoznit menit nastavenia strategie cez web UI iba pre whitelist bezpecnych poli.
-- [ ] Pred ulozenim nastaveni zobrazit diff, potvrdenie a vytvorit automaticku zalohu `.env`.
-- [ ] Umoznit bezpecny restart sluzby po zmene nastaveni.
+- [x] Umoznit menit nastavenia strategie cez web UI iba pre whitelist bezpecnych poli.
+- [x] Pred ulozenim nastaveni zobrazit diff, potvrdenie a vytvorit automaticku zalohu `.env`.
+- [x] Umoznit bezpecny restart sluzby po zmene nastaveni.
 - [ ] Pridat tlacidla: pozastavit bota, spustit bota, dry-run rezim.
 - [ ] Pridat silnejsie prihlasovanie pre pripad verejne dostupnej domeny, napr. nginx basic auth, Cloudflare Access, VPN/Tailscale alebo vlastny login s lepsou spravou pouzivatelov.
