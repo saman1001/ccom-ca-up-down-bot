@@ -442,9 +442,35 @@ td { font-size: 13px; }
   background: var(--bg-sunk);
   opacity: .72;
 }
+.setting-field.is-unset {
+  background: var(--bg-sunk);
+}
+.setting-field.is-unset.is-enabled {
+  background: #fff;
+  opacity: 1;
+}
 .setting-field.is-muted span em {
   background: #eceef2;
   color: var(--muted);
+}
+.setting-field.is-unset span em {
+  background: #eceef2;
+  color: var(--muted);
+}
+.setting-field.is-unset.is-enabled span em {
+  background: var(--green-bg);
+  color: var(--green);
+}
+.setting-enable {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--text-2);
+  font-size: 12px;
+}
+.setting-enable input {
+  width: 14px;
+  height: 14px;
 }
 .setting-field small {
   color: var(--muted);
@@ -468,6 +494,11 @@ td { font-size: 13px; }
   background: #f3f4f6;
   color: var(--muted);
   cursor: not-allowed;
+}
+.setting-field .setting-enable input {
+  width: 14px;
+  height: 14px;
+  min-width: 14px;
 }
 .setting-field input:focus,
 .setting-field select:focus {

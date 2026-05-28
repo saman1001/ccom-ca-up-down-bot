@@ -45,6 +45,20 @@ const READONLY_SETTINGS = [
 ];
 const ALL_SETTINGS = [...READONLY_SETTINGS, ...EDITABLE_SETTINGS];
 const BOOLEAN_SETTINGS = new Set(["BUY_BASE_BATCH_EVERY_RUN"]);
+const DEFAULT_SETTING_VALUES = {
+  MAX_OPEN_BATCHES: "0",
+  DAILY_BASE_BUY_LIMIT: "0",
+  FORCE_BASE_BUY_WEEKLY_LIMIT: "0",
+  BASE_BUY_COOLDOWN_MINUTES: "0",
+  BUY_BASE_BATCH_EVERY_RUN: "false",
+  MIN_QUOTE_BALANCE: "0",
+  MAX_SUSPICIOUS_PRICE_MOVE_PCT: "0",
+  CHECK_INTERVAL_MINUTES: "60",
+  MAKER_BOOK_LEVEL: "1",
+  MAKER_MAX_SPREAD_PCT: "0",
+  MAKER_ORDER_TIMEOUT_MINUTES: "15",
+  MAKER_REPRICE_AFTER_MINUTES: "0"
+};
 const SETTING_HELP = {
   INSTRUMENT: "Obchodny par na burze, pre ktory tato sluzba bezi.",
   BASE_ASSET: "Minca, ktoru bot nakupuje a predava.",
@@ -383,17 +397,22 @@ function settingsCard(pair) {
 function settingsField(key, value, pair) {
   const help = SETTING_HELP[key] || "Bezpecne whitelist nastavenie strategie pre tento par.";
   const isSet = Object.prototype.hasOwnProperty.call(pair.safeSettings, key) && value !== undefined && value !== "";
-  const editable = EDITABLE_SETTINGS.includes(key) && isSet;
+  const editable = EDITABLE_SETTINGS.includes(key);
   const readonly = READONLY_SETTINGS.includes(key);
   const status = !isSet ? "not set / default" : readonly ? "read-only" : "editable";
-  const disabled = editable ? "" : "disabled";
-  const fieldClass = `setting-field ${editable ? "" : "is-muted"}`;
+  const disabled = editable && !readonly && isSet ? "" : "disabled";
+  const fieldClass = `setting-field ${editable && !readonly ? "" : "is-muted"} ${!isSet && editable ? "is-unset" : ""}`;
+  const fieldValue = isSet ? String(value ?? "") : defaultSettingValue(key, pair);
+  const enableControl = !isSet && editable
+    ? `<div class="setting-enable"><input type="checkbox" data-enable-setting="${escapeHtml(key)}"> <span>Use this setting</span></div>`
+    : "";
   if (BOOLEAN_SETTINGS.has(key)) {
-    const normalized = String(value ?? "").toLowerCase() === "true" ? "true" : "false";
+    const normalized = fieldValue.toLowerCase() === "true" ? "true" : "false";
     return `
       <label class="${fieldClass}">
         <span>${escapeHtml(key)} <em>${escapeHtml(status)}</em></span>
-        <select name="${escapeHtml(key)}" ${disabled}>
+        ${enableControl}
+        <select name="${escapeHtml(key)}" data-setting-input="${escapeHtml(key)}" ${disabled}>
           <option value="true" ${normalized === "true" ? "selected" : ""}>true</option>
           <option value="false" ${normalized === "false" ? "selected" : ""}>false</option>
         </select>
@@ -404,10 +423,17 @@ function settingsField(key, value, pair) {
   return `
     <label class="${fieldClass}">
       <span>${escapeHtml(key)} <em>${escapeHtml(status)}</em></span>
-      <input name="${escapeHtml(key)}" value="${escapeHtml(String(value ?? ""))}" placeholder="${isSet ? "" : "not set"}" inputmode="decimal" autocomplete="off" ${disabled}>
+      ${enableControl}
+      <input name="${escapeHtml(key)}" data-setting-input="${escapeHtml(key)}" value="${escapeHtml(fieldValue)}" placeholder="${isSet ? "" : "not set"}" inputmode="decimal" autocomplete="off" ${disabled}>
       <small>${escapeHtml(help)}</small>
     </label>
   `;
+}
+
+function defaultSettingValue(key, pair) {
+  if (Object.prototype.hasOwnProperty.call(DEFAULT_SETTING_VALUES, key)) return DEFAULT_SETTING_VALUES[key];
+  if (key === "AVERAGE_DOWN_QUANTITY") return pair.safeSettings.BATCH_QUANTITY || "";
+  return "";
 }
 
 function settingsPreview(pair, preview) {
@@ -873,6 +899,15 @@ function bindEvents() {
       await reviewSettings(form);
     });
   });
+  document.querySelectorAll("[data-enable-setting]").forEach((checkbox) => {
+    checkbox.addEventListener("change", () => {
+      const field = checkbox.closest(".setting-field");
+      const input = field?.querySelector(`[data-setting-input="${cssEscape(checkbox.dataset.enableSetting)}"]`);
+      if (!input) return;
+      input.disabled = !checkbox.checked;
+      field.classList.toggle("is-enabled", checkbox.checked);
+    });
+  });
   document.querySelectorAll("[data-settings-apply]").forEach((button) => {
     button.addEventListener("click", async () => applySettings(button.dataset.settingsApply));
   });
@@ -940,6 +975,10 @@ async function postJson(url, body) {
     throw new Error(data.error || data.restartError || `Request failed (${response.status})`);
   }
   return data;
+}
+
+function cssEscape(value) {
+  return String(value).replaceAll("\\", "\\\\").replaceAll('"', '\\"');
 }
 
 function pairByInstrument(instrument) {
