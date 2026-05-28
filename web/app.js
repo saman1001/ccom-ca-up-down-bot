@@ -13,25 +13,25 @@ const state = {
 const CHART_RANGES = ["24h", "3d", "7d", "30d", "year", "all"];
 const DAILY_RANGES = ["7d", "30d", "all"];
 const EDITABLE_SETTINGS = [
-  "ORDER_MODE",
-  "BATCH_QUANTITY",
-  "AVERAGE_DOWN_QUANTITY",
-  "MAX_BATCH_QUANTITY",
-  "MAX_OPEN_BATCHES",
-  "DAILY_BASE_BUY_LIMIT",
-  "FORCE_BASE_BUY_WEEKLY_LIMIT",
-  "BASE_BUY_COOLDOWN_MINUTES",
   "AVERAGE_DOWN_DROP_PCT",
   "TAKE_PROFIT_RISE_PCT",
   "BUY_BASE_BATCH_EVERY_RUN",
-  "DUST_SELL_QUANTITY",
+  "BASE_BUY_COOLDOWN_MINUTES",
+  "DAILY_BASE_BUY_LIMIT",
+  "FORCE_BASE_BUY_WEEKLY_LIMIT",
+  "MAX_OPEN_BATCHES",
   "MIN_QUOTE_BALANCE",
-  "MAX_SUSPICIOUS_PRICE_MOVE_PCT",
-  "CHECK_INTERVAL_MINUTES",
+  "BATCH_QUANTITY",
+  "AVERAGE_DOWN_QUANTITY",
+  "MAX_BATCH_QUANTITY",
+  "ORDER_MODE",
   "MAKER_BOOK_LEVEL",
   "MAKER_MAX_SPREAD_PCT",
   "MAKER_ORDER_TIMEOUT_MINUTES",
-  "MAKER_REPRICE_AFTER_MINUTES"
+  "MAKER_REPRICE_AFTER_MINUTES",
+  "DUST_SELL_QUANTITY",
+  "CHECK_INTERVAL_MINUTES",
+  "MAX_SUSPICIOUS_PRICE_MOVE_PCT"
 ];
 const READONLY_SETTINGS = [
   "INSTRUMENT",
@@ -43,7 +43,42 @@ const READONLY_SETTINGS = [
   "ENABLE_TRADING",
   "SERVICE_NAME"
 ];
-const ALL_SETTINGS = [...READONLY_SETTINGS, ...EDITABLE_SETTINGS];
+const SETTINGS_GROUPS = [
+  {
+    title: "Najcastejsie",
+    note: "Percenta zisku/dokupu a limity novych zakladnych nakupov.",
+    keys: [
+      "AVERAGE_DOWN_DROP_PCT",
+      "TAKE_PROFIT_RISE_PCT",
+      "BUY_BASE_BATCH_EVERY_RUN",
+      "BASE_BUY_COOLDOWN_MINUTES",
+      "DAILY_BASE_BUY_LIMIT",
+      "FORCE_BASE_BUY_WEEKLY_LIMIT",
+      "MAX_OPEN_BATCHES",
+      "MIN_QUOTE_BALANCE"
+    ]
+  },
+  {
+    title: "Davky",
+    note: "Velkost jednej davky a jej maximalny rast dokupmi.",
+    keys: ["BATCH_QUANTITY", "AVERAGE_DOWN_QUANTITY", "MAX_BATCH_QUANTITY"]
+  },
+  {
+    title: "Ordery a maker rezim",
+    note: "Ako bot zadava ordery a kedy prehadzuje maker limit order.",
+    keys: ["ORDER_MODE", "MAKER_BOOK_LEVEL", "MAKER_MAX_SPREAD_PCT", "MAKER_ORDER_TIMEOUT_MINUTES", "MAKER_REPRICE_AFTER_MINUTES"]
+  },
+  {
+    title: "Ostatne ochrany",
+    note: "Menej caste nastavenia pre dust, interval a podozrive ceny.",
+    keys: ["DUST_SELL_QUANTITY", "CHECK_INTERVAL_MINUTES", "MAX_SUSPICIOUS_PRICE_MOVE_PCT"]
+  },
+  {
+    title: "Read-only",
+    note: "Informacne polia, ktore sa cez web nemenia.",
+    keys: READONLY_SETTINGS
+  }
+];
 const BOOLEAN_SETTINGS = new Set(["BUY_BASE_BATCH_EVERY_RUN"]);
 const SETTING_OPTIONS = {
   ORDER_MODE: [
@@ -379,9 +414,7 @@ function settingsCard(pair) {
       </div>
       <div class="card-body">
         <form class="settings-form" data-settings-form="${pair.instrument}">
-          <div class="settings-edit-list">
-            ${ALL_SETTINGS.map((key) => settingsField(key, pair.safeSettings[key], pair)).join("")}
-          </div>
+          ${SETTINGS_GROUPS.map((group) => settingsGroup(group, pair)).join("")}
           <div class="settings-actions">
             <button class="btn" type="submit">Review changes</button>
             <button class="btn" type="button" data-settings-reset="${pair.instrument}">Reset</button>
@@ -398,6 +431,20 @@ function settingsCard(pair) {
         </details>
       </div>
     </div>
+  `;
+}
+
+function settingsGroup(group, pair) {
+  return `
+    <section class="settings-group">
+      <div class="settings-group-head">
+        <h3>${escapeHtml(group.title)}</h3>
+        <p>${escapeHtml(group.note)}</p>
+      </div>
+      <div class="settings-edit-list">
+        ${group.keys.map((key) => settingsField(key, pair.safeSettings[key], pair)).join("")}
+      </div>
+    </section>
   `;
 }
 
