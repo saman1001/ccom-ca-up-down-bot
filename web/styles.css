@@ -411,6 +411,7 @@ td { font-size: 13px; }
 }
 .setting span:first-child { color: var(--muted); font: 12px var(--mono); overflow-wrap: anywhere; }
 .setting span:last-child { font: 600 12px var(--mono); text-align: right; overflow-wrap: anywhere; }
+.setting.muted { background: var(--bg-sunk); color: var(--muted); }
 .setting-field {
   display: grid;
   gap: 6px;
@@ -425,6 +426,25 @@ td { font-size: 13px; }
   color: var(--muted);
   font: 11px var(--mono);
   overflow-wrap: anywhere;
+}
+.setting-field span em {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 2px 5px;
+  border-radius: 5px;
+  background: var(--green-bg);
+  color: var(--green);
+  font-style: normal;
+  font-size: 9.5px;
+  text-transform: uppercase;
+}
+.setting-field.is-muted {
+  background: var(--bg-sunk);
+  opacity: .72;
+}
+.setting-field.is-muted span em {
+  background: #eceef2;
+  color: var(--muted);
 }
 .setting-field small {
   color: var(--muted);
@@ -442,6 +462,12 @@ td { font-size: 13px; }
   color: var(--text);
   padding: 0 10px;
   font: 600 12px var(--mono);
+}
+.setting-field input:disabled,
+.setting-field select:disabled {
+  background: #f3f4f6;
+  color: var(--muted);
+  cursor: not-allowed;
 }
 .setting-field input:focus,
 .setting-field select:focus {

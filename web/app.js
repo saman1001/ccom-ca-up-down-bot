@@ -32,8 +32,29 @@ const EDITABLE_SETTINGS = [
   "MAKER_ORDER_TIMEOUT_MINUTES",
   "MAKER_REPRICE_AFTER_MINUTES"
 ];
+const READONLY_SETTINGS = [
+  "INSTRUMENT",
+  "BASE_ASSET",
+  "QUOTE_ASSET",
+  "LOG_DIR",
+  "STRATEGY",
+  "ORDER_MODE",
+  "DRY_RUN",
+  "ENABLE_TRADING",
+  "SERVICE_NAME"
+];
+const ALL_SETTINGS = [...READONLY_SETTINGS, ...EDITABLE_SETTINGS];
 const BOOLEAN_SETTINGS = new Set(["BUY_BASE_BATCH_EVERY_RUN"]);
 const SETTING_HELP = {
+  INSTRUMENT: "Obchodny par na burze, pre ktory tato sluzba bezi.",
+  BASE_ASSET: "Minca, ktoru bot nakupuje a predava.",
+  QUOTE_ASSET: "Mena, v ktorej sa cena a zostatok rataju.",
+  LOG_DIR: "Adresar s logmi, SQLite databazou a stavom tohto paru.",
+  STRATEGY: "Strategia, ktoru bot pouziva; aktualne hlavne davkova strategia.",
+  ORDER_MODE: "Typ orderov, ktore bot pouziva, napr. maker limit rezim.",
+  DRY_RUN: "Ak je true, bot iba simuluje a neposiela realne obchody.",
+  ENABLE_TRADING: "Ak je true, bot moze realne obchodovat podla strategie.",
+  SERVICE_NAME: "Systemd sluzba, ktora spusta tento konkretny par.",
   BATCH_QUANTITY: "Velkost zakladnej davky, ktoru bot kupi pri beznom base buy.",
   AVERAGE_DOWN_QUANTITY: "Velkost dokupu pri poklese ceny; ak je prazdna, pouzije sa zakladna davka.",
   MAX_BATCH_QUANTITY: "Maximalne mnozstvo, kam moze jedna otvorena davka narast dokupmi.",
@@ -338,7 +359,7 @@ function settingsCard(pair) {
       <div class="card-body">
         <form class="settings-form" data-settings-form="${pair.instrument}">
           <div class="settings-edit-list">
-            ${EDITABLE_SETTINGS.filter((key) => Object.prototype.hasOwnProperty.call(pair.safeSettings, key)).map((key) => settingsField(key, pair.safeSettings[key])).join("")}
+            ${ALL_SETTINGS.map((key) => settingsField(key, pair.safeSettings[key], pair)).join("")}
           </div>
           <div class="settings-actions">
             <button class="btn" type="submit">Review changes</button>
@@ -347,12 +368,11 @@ function settingsCard(pair) {
         </form>
         ${preview ? settingsPreview(pair, preview) : ""}
         <details class="readonly-settings">
-          <summary>Read-only fields</summary>
+          <summary>Co znamena oznacenie</summary>
           <div class="settings-list">
-            ${Object.entries(pair.safeSettings)
-              .filter(([key]) => !EDITABLE_SETTINGS.includes(key))
-              .map(([key, value]) => `<div class="setting"><span>${escapeHtml(key)}</span><span>${escapeHtml(String(value ?? ""))}</span></div>`)
-              .join("")}
+            <div class="setting"><span>editable</span><span>da sa menit cez diff a restart</span></div>
+            <div class="setting muted"><span>read-only</span><span>informacne pole, cez web nemenit</span></div>
+            <div class="setting muted"><span>not set</span><span>v .env nie je nastavene, pouziva sa default alebo sa nepouziva</span></div>
           </div>
         </details>
       </div>
@@ -360,14 +380,20 @@ function settingsCard(pair) {
   `;
 }
 
-function settingsField(key, value) {
+function settingsField(key, value, pair) {
   const help = SETTING_HELP[key] || "Bezpecne whitelist nastavenie strategie pre tento par.";
+  const isSet = Object.prototype.hasOwnProperty.call(pair.safeSettings, key) && value !== undefined && value !== "";
+  const editable = EDITABLE_SETTINGS.includes(key) && isSet;
+  const readonly = READONLY_SETTINGS.includes(key);
+  const status = !isSet ? "not set / default" : readonly ? "read-only" : "editable";
+  const disabled = editable ? "" : "disabled";
+  const fieldClass = `setting-field ${editable ? "" : "is-muted"}`;
   if (BOOLEAN_SETTINGS.has(key)) {
     const normalized = String(value ?? "").toLowerCase() === "true" ? "true" : "false";
     return `
-      <label class="setting-field">
-        <span>${escapeHtml(key)}</span>
-        <select name="${escapeHtml(key)}">
+      <label class="${fieldClass}">
+        <span>${escapeHtml(key)} <em>${escapeHtml(status)}</em></span>
+        <select name="${escapeHtml(key)}" ${disabled}>
           <option value="true" ${normalized === "true" ? "selected" : ""}>true</option>
           <option value="false" ${normalized === "false" ? "selected" : ""}>false</option>
         </select>
@@ -376,9 +402,9 @@ function settingsField(key, value) {
     `;
   }
   return `
-    <label class="setting-field">
-      <span>${escapeHtml(key)}</span>
-      <input name="${escapeHtml(key)}" value="${escapeHtml(String(value ?? ""))}" inputmode="decimal" autocomplete="off">
+    <label class="${fieldClass}">
+      <span>${escapeHtml(key)} <em>${escapeHtml(status)}</em></span>
+      <input name="${escapeHtml(key)}" value="${escapeHtml(String(value ?? ""))}" placeholder="${isSet ? "" : "not set"}" inputmode="decimal" autocomplete="off" ${disabled}>
       <small>${escapeHtml(help)}</small>
     </label>
   `;
