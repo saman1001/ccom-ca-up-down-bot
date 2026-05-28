@@ -392,11 +392,12 @@ function dailySummaryCard() {
   return `
     <div class="card">
       <div class="card-head">
-        <h2>P/L by day</h2><span class="sub">last 7 days · both pairs</span>
+        <h2>Daily realized P/L</h2><span class="sub">closed batches + sold dust · UTC</span>
         <div class="head-right tabs"><button class="active">7d</button><button disabled>30d</button><button disabled>All</button></div>
       </div>
       <div class="card-body">
         ${rows.length ? dailyBars(rows) : `<div class="empty">Zatial nie su denne P/L data.</div>`}
+        <div class="chart-note">Open batches are not included here. Days without a closed batch or sold dust are shown as $0.</div>
       </div>
     </div>
   `;
@@ -406,21 +407,29 @@ function combinedDailyPnlRows() {
   const rows = new Map();
   for (const pair of state.data.pairs) {
     for (const row of pair.dailySummaries || []) {
-      const current = rows.get(row.day) || { day: row.day, realizedCash: 0, closedBatches: 0 };
+      const current = rows.get(row.day) || { day: row.day, realizedInclSoldDust: 0, realizedCash: 0, dustSoldValue: 0, closedBatches: 0 };
       current.realizedCash += Number(row.realizedCash || 0);
+      current.dustSoldValue += Number(row.dustSoldValue || 0);
+      current.realizedInclSoldDust += dailyRealizedInclSoldDust(row);
       current.closedBatches += Number(row.closedBatches || 0);
       rows.set(row.day, current);
     }
   }
-  return Array.from(rows.values()).sort((a, b) => a.day.localeCompare(b.day)).slice(-7);
+  return lastUtcDays(7).map((day) => rows.get(day) || {
+    day,
+    realizedInclSoldDust: 0,
+    realizedCash: 0,
+    dustSoldValue: 0,
+    closedBatches: 0
+  });
 }
 
 function dailyBars(rows) {
-  const max = Math.max(...rows.map((row) => Math.abs(Number(row.realizedCash || 0))), 1);
-  return `<div class="bars" aria-label="P/L by day">
+  const max = Math.max(...rows.map((row) => Math.abs(Number(row.realizedInclSoldDust || 0))), 1);
+  return `<div class="bars" aria-label="Daily realized P/L">
     <div class="bar-zero"></div>
     ${rows.map((row) => {
-      const value = Number(row.realizedCash || 0);
+      const value = Number(row.realizedInclSoldDust || 0);
       const height = Math.max(4, Math.round((Math.abs(value) / max) * 72));
       const style = value >= 0
         ? `height:${height}px; bottom:50%;`
@@ -432,6 +441,20 @@ function dailyBars(rows) {
       </div>`;
     }).join("")}
   </div>`;
+}
+
+function dailyRealizedInclSoldDust(row) {
+  return Number(row.realizedCash || 0) + Number(row.dustSoldValue || 0);
+}
+
+function lastUtcDays(count) {
+  const end = state.data.generatedAt ? new Date(state.data.generatedAt) : new Date();
+  const start = new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate()));
+  return Array.from({ length: count }, (_, index) => {
+    const day = new Date(start);
+    day.setUTCDate(start.getUTCDate() - (count - 1 - index));
+    return day.toISOString().slice(0, 10);
+  });
 }
 
 function openBatchesTable(rows, pair) {

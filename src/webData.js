@@ -249,7 +249,11 @@ function averageHoldingDays(closedStats) {
 function todayRealizedPnl(dailySummaries) {
   const today = new Date().toISOString().slice(0, 10);
   const row = dailySummaries.find((item) => item.day === today);
-  return row ? Number(row.realizedCash || 0) : 0;
+  return row ? dailyRealizedInclSoldDust(row) : 0;
+}
+
+function dailyRealizedInclSoldDust(row) {
+  return Number(row.realizedCash || 0) + Number(row.dustSoldValue || 0);
 }
 
 function buildReportData({ config, batches, dustBank, snapshots, orderEvents }) {
