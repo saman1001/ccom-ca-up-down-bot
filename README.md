@@ -129,7 +129,8 @@ The current dashboard can show:
 - price chart with real buy/sell markers and range switches (`24h`, `3d`, `7d`, `30d`, `year`, `all`),
 - maker order statistics with fill rate, cancel rate, active count and other statuses,
 - health/alerts page with systemd status, last tick age, stale maker checks and recent redacted error-like journal lines,
-- settings view with editable whitelisted non-secret strategy fields, diff preview, `.env` backup and service restart.
+- settings view per pair with important fields grouped first, editable whitelisted non-secret strategy fields, disabled/default fields that can be explicitly enabled, diff preview, risk warnings, `.env` backup and service restart,
+- guarded `ORDER_MODE` switching between `maker` and `market`/taker mode, with warnings and active-maker-order protection.
 
 Create a private local config:
 
@@ -159,7 +160,7 @@ Open:
 http://127.0.0.1:8787
 ```
 
-For VPS use, the safest default is `WEB_BIND_HOST=127.0.0.1` and access through a protected path such as an SSH tunnel, VPN/Tailscale, Cloudflare Access, or a properly protected reverse proxy. If the dashboard is reachable through a public hostname, keep it behind HTTPS, a strong password, and preferably an additional access layer such as Cloudflare Access, nginx basic auth, VPN or Tailscale. Do not document the private hostname, exact VPS IP, passwords, emails, logs or generated reports in this public repository.
+For VPS use, the safest default is `WEB_BIND_HOST=127.0.0.1` and access through a protected path such as an SSH tunnel, VPN/Tailscale, Cloudflare Access, or a properly protected reverse proxy. If the dashboard is reachable through a public hostname, keep it behind HTTPS, a strong password, and preferably an additional access layer such as Cloudflare Access, reverse-proxy basic auth, VPN or Tailscale. Do not document the private hostname, exact VPS IP, passwords, emails, logs or generated reports in this public repository.
 
 `WEB_DATA_SOURCE=auto` tries SQLite first and falls back to JSON log files. Use `WEB_DATA_SOURCE=sqlite` to require SQLite, or `WEB_DATA_SOURCE=logs` to read only the original log files.
 
