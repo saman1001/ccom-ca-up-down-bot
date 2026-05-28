@@ -346,7 +346,7 @@ function writeEnvFile(filePath, changes) {
 }
 
 function restartService(serviceName) {
-  if (!/^ccom-updown(-btc)?$/.test(serviceName)) {
+  if (!/^ccom-updown(-btc)?(\.service)?$/.test(serviceName)) {
     return { ok: false, error: `Refusing to restart unexpected service ${serviceName}` };
   }
   const result = spawnSync("systemctl", ["restart", serviceName], { encoding: "utf8" });
