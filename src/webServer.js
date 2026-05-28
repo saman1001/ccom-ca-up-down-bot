@@ -287,6 +287,7 @@ function settingsPlan(body) {
   if (body.settings && Object.keys(submitted).some((key) => !EDITABLE_SETTING_KEYS.has(key))) {
     warnings.push("Some submitted fields were ignored because they are not editable from the web UI.");
   }
+  warnings.push(...settingsRiskWarnings(pair, { ...currentEnv, ...Object.fromEntries(changes.map((change) => [change.key, change.to])) }, changes));
 
   return { pair, envPath, changes, warnings };
 }
@@ -321,6 +322,73 @@ function normalizeSettingValue(key, rawValue) {
   if (number < 0) throw httpError(400, `${key} must be zero or greater`);
   if (key === "CHECK_INTERVAL_MINUTES" && number <= 0) throw httpError(400, `${key} must be greater than zero`);
   return value;
+}
+
+function settingsRiskWarnings(pair, env, changes) {
+  if (!changes.length) return [];
+  const warnings = [];
+  const changed = new Set(changes.map((change) => change.key));
+  const number = (key, fallback = 0) => {
+    const value = Number(env[key] ?? fallback);
+    return Number.isFinite(value) ? value : fallback;
+  };
+  const bool = (key) => String(env[key] ?? "").toLowerCase() === "true";
+  const batchQty = number("BATCH_QUANTITY");
+  const avgDownQty = env.AVERAGE_DOWN_QUANTITY === undefined || env.AVERAGE_DOWN_QUANTITY === ""
+    ? batchQty
+    : number("AVERAGE_DOWN_QUANTITY");
+  const maxBatchQty = number("MAX_BATCH_QUANTITY");
+  const maxOpen = number("MAX_OPEN_BATCHES");
+  const dailyLimit = number("DAILY_BASE_BUY_LIMIT");
+  const cooldown = number("BASE_BUY_COOLDOWN_MINUTES");
+  const forceWeekly = number("FORCE_BASE_BUY_WEEKLY_LIMIT");
+  const takeProfit = number("TAKE_PROFIT_RISE_PCT");
+  const averageDown = number("AVERAGE_DOWN_DROP_PCT");
+  const minQuote = number("MIN_QUOTE_BALANCE");
+  const checkInterval = number("CHECK_INTERVAL_MINUTES", 60);
+  const makerTimeout = number("MAKER_ORDER_TIMEOUT_MINUTES");
+  const makerReprice = number("MAKER_REPRICE_AFTER_MINUTES");
+
+  if (maxBatchQty > 0 && batchQty > maxBatchQty) {
+    warnings.push("BATCH_QUANTITY is higher than MAX_BATCH_QUANTITY, so a new base batch may already exceed the per-batch cap.");
+  }
+  if (maxBatchQty > 0 && avgDownQty > maxBatchQty) {
+    warnings.push("AVERAGE_DOWN_QUANTITY is higher than MAX_BATCH_QUANTITY, so an average-down buy may not fit into one batch.");
+  }
+  if (maxBatchQty > 0 && batchQty + avgDownQty > maxBatchQty) {
+    warnings.push("One base buy plus one average-down buy is higher than MAX_BATCH_QUANTITY; a batch may stop averaging down after the first buy.");
+  }
+  if (bool("BUY_BASE_BATCH_EVERY_RUN") && maxOpen === 0 && dailyLimit === 0 && cooldown === 0) {
+    warnings.push("BUY_BASE_BATCH_EVERY_RUN is true with no max-open limit, no daily limit and no cooldown; the bot can try to open a base batch every tick.");
+  }
+  if (bool("BUY_BASE_BATCH_EVERY_RUN") && cooldown === 0 && dailyLimit === 0) {
+    warnings.push("Base buys have no cooldown and no daily limit; consider setting at least one of them to avoid too many new batches.");
+  }
+  if (forceWeekly > 0 && (cooldown > 0 || dailyLimit > 0 || maxOpen > 0)) {
+    warnings.push("FORCE_BASE_BUY_WEEKLY_LIMIT can override cooldown, daily limit and max open batches for the forced weekly base buy.");
+  }
+  if (takeProfit > 0 && takeProfit < 1) {
+    warnings.push("TAKE_PROFIT_RISE_PCT is below 1%; fees and spread may eat most or all of that profit.");
+  }
+  if (averageDown > 0 && averageDown < 1) {
+    warnings.push("AVERAGE_DOWN_DROP_PCT is below 1%; this can average down very often on normal market noise.");
+  }
+  if (averageDown > 0 && takeProfit > 0 && averageDown < takeProfit / 2) {
+    warnings.push("AVERAGE_DOWN_DROP_PCT is much smaller than TAKE_PROFIT_RISE_PCT; the bot may add to losing batches more often than it closes them.");
+  }
+  if (minQuote === 0 && (changed.has("MIN_QUOTE_BALANCE") || bool("BUY_BASE_BATCH_EVERY_RUN"))) {
+    warnings.push("MIN_QUOTE_BALANCE is 0, so the bot has no extra USD reserve guard beyond exchange/order checks.");
+  }
+  if (checkInterval > 0 && checkInterval < 15) {
+    warnings.push("CHECK_INTERVAL_MINUTES is below 15; the bot will check often and may create more maker order churn.");
+  }
+  if (makerTimeout > 0 && makerReprice > 0 && makerReprice >= makerTimeout) {
+    warnings.push("MAKER_REPRICE_AFTER_MINUTES is greater than or equal to MAKER_ORDER_TIMEOUT_MINUTES; repricing may not happen before stale-order timeout.");
+  }
+  if (pair.baseAsset === "CRO" && batchQty > 0 && batchQty < 1) {
+    warnings.push("CRO quantity rules usually require whole CRO amounts; a fractional BATCH_QUANTITY may be rounded by instrument rules.");
+  }
+  return warnings;
 }
 
 function backupEnvFile(filePath) {

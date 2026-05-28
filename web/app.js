@@ -440,6 +440,12 @@ function settingsPreview(pair, preview) {
   return `
     <div class="settings-preview">
       <div class="mini-title">Diff before apply</div>
+      ${preview.warnings?.length ? `
+        <div class="risk-box">
+          <strong>Skontroluj pred ulozenim</strong>
+          <ul>${preview.warnings.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>
+        </div>
+      ` : ""}
       ${preview.changes.length ? `
         <div class="table-wrap compact"><table>
           <thead><tr><th>Key</th><th>Current</th><th>New</th></tr></thead>
@@ -456,7 +462,6 @@ function settingsPreview(pair, preview) {
           <button class="btn" type="button" data-settings-cancel>Cancel</button>
         </div>
       ` : `<div class="empty compact">Ziadne zmeny na ulozenie.</div>`}
-      ${preview.warnings?.length ? `<ul class="settings-warnings">${preview.warnings.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>` : ""}
     </div>
   `;
 }

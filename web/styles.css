@@ -517,11 +517,21 @@ td { font-size: 13px; }
   padding-top: 14px;
 }
 .table-wrap.compact { max-height: 260px; }
-.settings-warnings {
-  margin: 10px 0 0;
+.risk-box {
+  margin: 10px 0 12px;
+  border: 1px solid var(--amber-line);
+  background: var(--amber-bg);
+  border-radius: 7px;
+  padding: 10px 12px;
+  color: var(--text);
+}
+.risk-box strong { font-size: 12.5px; }
+.risk-box ul {
+  margin: 7px 0 0;
   padding-left: 18px;
-  color: var(--amber);
+  color: var(--text-2);
   font-size: 12px;
+  line-height: 1.45;
 }
 .readonly-settings { margin-top: 16px; }
 .readonly-settings summary {
