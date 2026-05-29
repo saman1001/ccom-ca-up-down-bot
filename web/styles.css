@@ -145,6 +145,8 @@ button, input { font: inherit; }
 }
 .btn:hover { background: var(--bg-sunk); }
 .btn-primary { background: var(--text); border-color: var(--text); color: #fff; }
+.btn-danger { border-color: var(--red-line); color: var(--red); background: var(--red-bg); }
+.btn-link { display: inline-block; text-decoration: none; color: var(--text); }
 .btn:focus-visible, .nav button:focus-visible, .tabs button:focus-visible {
   outline: 2px solid color-mix(in oklch, var(--blue) 55%, transparent);
   outline-offset: 2px;
@@ -267,6 +269,18 @@ button, input { font: inherit; }
 .metric-note { margin-top: 3px; color: var(--muted); font-size: 11px; }
 
 .health-card .card-head { align-items: center; }
+.service-control-list { display: grid; gap: 10px; }
+.service-control-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 11px 12px;
+  background: #fff;
+}
+.service-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
 .health-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -683,6 +697,8 @@ td { font-size: 13px; }
   .chart { min-height: 230px; }
   .table-wrap { max-height: 320px; }
   table { min-width: 560px; }
+  .service-control-row { align-items: flex-start; flex-direction: column; }
+  .service-actions { justify-content: flex-start; }
   th, td { padding: 8px 10px; }
   .bars { height: 145px; gap: 8px; padding-left: 0; padding-right: 0; }
 }

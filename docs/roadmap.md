@@ -164,7 +164,7 @@ Toto robit postupne a bezpecne: najprv read-only dashboard, potom az po kontrole
 - [x] Doladit desktop a mobilny dizajn podla dodaneho wireframu.
 - [ ] Navrhnut databazovu vrstvu tak, aby sa dala neskor prepnut zo SQLite na PostgreSQL.
 - [ ] Pre vacsie web UI/API zvazit PostgreSQL ako cielovu produkcnu databazu.
-- [ ] Pridat export/stiahnutie existujucich HTML/CSV reportov az po kontrole ochrany pristupu.
+- [x] Pridat export/stiahnutie existujucich HTML/CSV reportov az po kontrole ochrany pristupu.
 - [x] Umoznit menit nastavenia strategie cez web UI iba pre whitelist bezpecnych poli.
 - [x] Zobrazit nastavenia po jednotlivych paroch a zoradit najcastejsie parametre hore.
 - [x] Zobrazit nenastavene/default parametre ako neaktivne a umoznit ich vedome zapnut cez UI.
@@ -173,5 +173,6 @@ Toto robit postupne a bezpecne: najprv read-only dashboard, potom az po kontrole
 - [x] Pridat risk warnings do Review changes pri koliznych alebo znamych rizikovych nastaveniach.
 - [x] Umoznit chranene prepnutie `ORDER_MODE` medzi maker a market/taker rezimom s ochranou pri aktivnych maker orderoch.
 - [x] Umoznit bezpecny restart sluzby po zmene nastaveni.
-- [ ] Pridat tlacidla: pozastavit bota, spustit bota, dry-run rezim.
+- [x] Pridat service control tlacidla pre start, pause/stop a restart povolenych bot sluzieb.
+- [ ] Pridat samostatne tlacidlo alebo flow pre dry-run rezim.
 - [ ] Pridat lepsiu spravu pouzivatelov alebo dalsiu ochranu ako Cloudflare Access/VPN/Tailscale, ak bude web pouzivany castejsie alebo viac ludmi.

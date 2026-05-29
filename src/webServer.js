@@ -11,6 +11,7 @@ loadDotEnv(path.resolve(".env.web"));
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.resolve(__dirname, "..", "web");
+const reportsDir = path.resolve("reports");
 const host = process.env.WEB_BIND_HOST || "127.0.0.1";
 const port = Number(process.env.WEB_PORT || 8787);
 const sessionHours = Number(process.env.WEB_SESSION_HOURS || 8);
@@ -88,6 +89,18 @@ async function handleRequest(req, res) {
     return sendJson(res, 200, buildDashboardPayload());
   }
 
+  if (req.method === "GET" && pathname === "/api/reports") {
+    return sendJson(res, 200, buildReportsPayload());
+  }
+
+  if (req.method === "GET" && pathname === "/api/reports/download") {
+    return handleReportDownload(url, res);
+  }
+
+  if (req.method === "POST" && pathname === "/api/service/control") {
+    return handleServiceControl(req, res);
+  }
+
   if (req.method === "POST" && pathname === "/api/settings/preview") {
     return handleSettingsPreview(req, res);
   }
@@ -107,6 +120,34 @@ async function handleRequest(req, res) {
   }
 
   sendText(res, 405, "Method not allowed");
+}
+
+async function handleServiceControl(req, res) {
+  const body = await readJsonBody(req);
+  const instrument = String(body.instrument || "").trim();
+  const action = String(body.action || "").trim().toLowerCase();
+  const payload = buildDashboardPayload();
+  const pair = payload.pairs.find((item) => item.instrument === instrument);
+  if (!pair) throw httpError(404, "Pair not found");
+
+  const result = controlService(pair.serviceName, action);
+  if (!result.ok) {
+    return sendJson(res, 500, {
+      ok: false,
+      instrument,
+      serviceName: pair.serviceName,
+      action,
+      error: result.error
+    });
+  }
+
+  return sendJson(res, 200, {
+    ok: true,
+    instrument,
+    serviceName: pair.serviceName,
+    action,
+    active: serviceIsActive(pair.serviceName)
+  });
 }
 
 async function handleSettingsPreview(req, res) {
@@ -407,6 +448,82 @@ function settingsRiskWarnings(pair, env, changes) {
   return warnings;
 }
 
+function buildReportsPayload() {
+  const payload = buildDashboardPayload();
+  const prefixes = new Set(payload.pairs.map((pair) => slugify(pair.instrument)));
+  const files = [];
+  if (fs.existsSync(reportsDir)) {
+    for (const name of fs.readdirSync(reportsDir)) {
+      if (!isAllowedReportFile(name, prefixes)) continue;
+      const filePath = path.join(reportsDir, name);
+      const stat = fs.statSync(filePath);
+      if (!stat.isFile()) continue;
+      files.push({
+        name,
+        label: reportLabel(name),
+        pair: reportPair(name, prefixes),
+        kind: reportKind(name),
+        size: stat.size,
+        mtime: stat.mtime.toISOString(),
+        url: `/api/reports/download?file=${encodeURIComponent(name)}`
+      });
+    }
+  }
+  files.sort((left, right) => `${left.pair}:${left.kind}:${left.name}`.localeCompare(`${right.pair}:${right.kind}:${right.name}`));
+  return {
+    ok: true,
+    generatedAt: new Date().toISOString(),
+    files
+  };
+}
+
+function handleReportDownload(url, res) {
+  const name = path.basename(String(url.searchParams.get("file") || ""));
+  const payload = buildDashboardPayload();
+  const prefixes = new Set(payload.pairs.map((pair) => slugify(pair.instrument)));
+  if (!isAllowedReportFile(name, prefixes)) throw httpError(404, "Report file not found");
+  const filePath = path.resolve(reportsDir, name);
+  if (!filePath.startsWith(reportsDir + path.sep) || !fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
+    throw httpError(404, "Report file not found");
+  }
+  res.writeHead(200, {
+    "Content-Type": mimeType(filePath),
+    "Content-Disposition": `attachment; filename="${name.replaceAll('"', "")}"`,
+    "Cache-Control": "no-store"
+  });
+  fs.createReadStream(filePath).pipe(res);
+}
+
+function isAllowedReportFile(name, prefixes) {
+  if (!/^[a-z0-9_.-]+\.(html|csv)$/i.test(name)) return false;
+  if (name === "index.html") return true;
+  for (const prefix of prefixes) {
+    if (name.startsWith(`${prefix}-`)) return true;
+  }
+  return false;
+}
+
+function reportPair(name, prefixes) {
+  if (name === "index.html") return "portfolio";
+  for (const prefix of prefixes) {
+    if (name.startsWith(`${prefix}-`)) return prefix.toUpperCase().replace("-", "_");
+  }
+  return "other";
+}
+
+function reportKind(name) {
+  if (name === "index.html") return "index";
+  return name
+    .replace(/^[a-z0-9-]+-/i, "")
+    .replace(/\.(html|csv)$/i, "");
+}
+
+function reportLabel(name) {
+  return name
+    .replace(/\.(html|csv)$/i, "")
+    .replaceAll("-", " ");
+}
+
 function backupEnvFile(filePath) {
   const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\..+$/, "").replace("T", "-");
   const backupPath = `${filePath}.backup-${stamp}`;
@@ -430,16 +547,33 @@ function writeEnvFile(filePath, changes) {
 }
 
 function restartService(serviceName) {
-  if (!/^ccom-updown(-btc)?(\.service)?$/.test(serviceName)) {
-    return { ok: false, error: `Refusing to restart unexpected service ${serviceName}` };
+  return controlService(serviceName, "restart");
+}
+
+function controlService(serviceName, action) {
+  const normalizedAction = action === "pause" ? "stop" : action;
+  if (!["start", "stop", "restart"].includes(normalizedAction)) {
+    return { ok: false, error: `Unsupported service action ${action}` };
   }
-  const result = spawnSync("systemctl", ["restart", serviceName], { encoding: "utf8" });
+  if (!/^ccom-updown(-btc)?(\.service)?$/.test(serviceName)) {
+    return { ok: false, error: `Refusing to control unexpected service ${serviceName}` };
+  }
+  const result = spawnSync("systemctl", [normalizedAction, serviceName], { encoding: "utf8" });
   if (result.status === 0) return { ok: true, error: "" };
   return { ok: false, error: (result.stderr || result.stdout || `systemctl exited ${result.status}`).trim() };
 }
 
+function serviceIsActive(serviceName) {
+  const result = spawnSync("systemctl", ["is-active", serviceName], { encoding: "utf8" });
+  return result.stdout.trim() === "active";
+}
+
 function displayPath(filePath) {
   return path.relative(process.cwd(), filePath) || ".";
+}
+
+function slugify(value) {
+  return String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 }
 
 function httpError(status, message) {

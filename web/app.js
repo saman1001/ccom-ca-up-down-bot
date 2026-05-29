@@ -1,5 +1,6 @@
 const state = {
   data: null,
+  reports: { files: [] },
   view: "overview",
   pair: "BTC_USD",
   batchTab: "open",
@@ -7,7 +8,8 @@ const state = {
   dailyRange: "7d",
   settingsPair: "BTC_USD",
   settingsPreview: null,
-  settingsMessage: null
+  settingsMessage: null,
+  serviceMessage: null
 };
 
 const CHART_RANGES = ["24h", "3d", "7d", "30d", "year", "all"];
@@ -143,6 +145,7 @@ async function init() {
       return;
     }
     state.data = await response.json();
+    state.reports = await fetchReports();
     state.pair = state.data.pairs[0]?.instrument || "BTC_USD";
     state.settingsPair = pairByInstrument(state.settingsPair)?.instrument || state.pair;
     render();
@@ -225,6 +228,7 @@ function sidebar() {
         <div class="section-label">System</div>
         <nav class="nav">
           ${navButton("settings", "Nastavenia")}
+          ${navButton("exports", "Export reportov")}
         </nav>
       </div>
 
@@ -257,6 +261,8 @@ function topbar() {
     ? state.pair.replace("_", " / ")
     : state.view === "settings"
       ? "Nastavenia"
+      : state.view === "exports"
+        ? "Export reportov"
       : state.view === "alerts"
         ? "Zdravie / chyby"
         : "Prehlad";
@@ -284,6 +290,7 @@ function dataSourceLabel() {
 function page() {
   if (state.view === "pair") return pairDetail(pairByInstrument(state.pair));
   if (state.view === "settings") return settingsPage();
+  if (state.view === "exports") return exportsPage();
   if (state.view === "alerts") return alertsPage();
   return overviewPage();
 }
@@ -402,6 +409,16 @@ function settingsPage() {
     </div>
     ${activePair ? settingsCard(activePair) : `<div class="empty">Par sa nenasiel.</div>`}
   `;
+}
+
+async function fetchReports() {
+  try {
+    const response = await fetch("/api/reports", { cache: "no-store" });
+    if (!response.ok) return { files: [] };
+    return await response.json();
+  } catch {
+    return { files: [] };
+  }
 }
 
 function settingsCard(pair) {
@@ -533,6 +550,34 @@ function settingsPreview(pair, preview) {
   `;
 }
 
+function exportsPage() {
+  const files = state.reports?.files || [];
+  const byPair = groupBy(files, (file) => file.pair || "other");
+  const groups = Object.entries(byPair);
+  return `
+    ${banner("info", "Export reportov", "Stiahnes iba aktualne HTML/CSV subory z reports/. Reporty mozu obsahovat privatne balances a historiu obchodov.")}
+    ${files.length ? groups.map(([pair, rows]) => `
+      <div class="card">
+        <div class="card-head"><h2>${escapeHtml(pair)}</h2><span class="sub">${rows.length} suborov</span></div>
+        <div class="card-body flush">
+          <table>
+            <thead><tr><th>Report</th><th>Typ</th><th class="right">Velkost</th><th class="right">Aktualizovane</th><th class="right">Akcia</th></tr></thead>
+            <tbody>${rows.map((file) => `
+              <tr>
+                <td>${escapeHtml(file.label)}</td>
+                <td class="mono">${escapeHtml(file.kind)}</td>
+                <td class="right mono">${fileSize(file.size)}</td>
+                <td class="right mono">${shortDate(file.mtime)}</td>
+                <td class="right"><a class="btn btn-link" href="${escapeHtml(file.url)}">Download</a></td>
+              </tr>
+            `).join("")}</tbody>
+          </table>
+        </div>
+      </div>
+    `).join("") : `<div class="empty">Zatial nie su dostupne reporty v adresari reports/.</div>`}
+  `;
+}
+
 function alertsPage() {
   const alerts = state.data.alerts;
   const errorCount = alerts.filter((alert) => alert.level === "error").length;
@@ -551,7 +596,34 @@ function alertsPage() {
     <div class="grid-2">
       ${state.data.pairs.map(healthPairCard).join("")}
     </div>
+    ${serviceControlsCard()}
     ${systemStatusCard()}
+  `;
+}
+
+function serviceControlsCard() {
+  return `
+    <div class="card">
+      <div class="card-head"><h2>Service control</h2><span class="sub">start / pause / restart</span></div>
+      <div class="card-body">
+        ${state.serviceMessage ? banner(state.serviceMessage.level, state.serviceMessage.title, state.serviceMessage.text) : ""}
+        <div class="service-control-list">
+          ${state.data.pairs.map((pair) => `
+            <div class="service-control-row">
+              <div>
+                <strong>${pair.instrument.replace("_", " / ")}</strong>
+                <div class="sub">${escapeHtml(pair.serviceName)} · ${serviceLabel(pair.serviceActive)}</div>
+              </div>
+              <div class="service-actions">
+                <button class="btn" data-service-action="start" data-service-pair="${pair.instrument}">Start</button>
+                <button class="btn" data-service-action="restart" data-service-pair="${pair.instrument}">Restart</button>
+                <button class="btn btn-danger" data-service-action="stop" data-service-pair="${pair.instrument}">Pause</button>
+              </div>
+            </div>
+          `).join("")}
+        </div>
+      </div>
+    </div>
   `;
 }
 
@@ -997,6 +1069,9 @@ function bindEvents() {
       render();
     });
   });
+  document.querySelectorAll("[data-service-action]").forEach((button) => {
+    button.addEventListener("click", async () => controlService(button.dataset.servicePair, button.dataset.serviceAction));
+  });
   document.querySelector("[data-refresh]")?.addEventListener("click", init);
 }
 
@@ -1032,6 +1107,26 @@ async function applySettings(instrument) {
     await init();
   } catch (error) {
     state.settingsMessage = { level: "error", title: "Settings apply failed", text: error.message };
+    render();
+  }
+}
+
+async function controlService(instrument, action) {
+  const pair = pairByInstrument(instrument);
+  const label = action === "stop" ? "pause" : action;
+  if (!pair) return;
+  const ok = window.confirm(`${label.toUpperCase()} ${pair.instrument.replace("_", " / ")}?\n\nThis controls systemd service ${pair.serviceName}.`);
+  if (!ok) return;
+  try {
+    const result = await postJson("/api/service/control", { instrument, action });
+    state.serviceMessage = {
+      level: "info",
+      title: "Service control OK",
+      text: `${result.instrument}: ${result.action} ${result.serviceName}, active=${result.active ? "yes" : "no"}.`
+    };
+    await init();
+  } catch (error) {
+    state.serviceMessage = { level: "error", title: "Service control failed", text: error.message };
     render();
   }
 }
@@ -1088,6 +1183,22 @@ function newest(values) {
   const times = values.map((value) => new Date(value || "").getTime()).filter(Number.isFinite);
   if (!times.length) return null;
   return new Date(Math.max(...times)).toISOString();
+}
+
+function groupBy(items, keyFn) {
+  return items.reduce((groups, item) => {
+    const key = keyFn(item);
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(item);
+    return groups;
+  }, {});
+}
+
+function fileSize(bytes) {
+  const value = Number(bytes || 0);
+  if (value >= 1024 * 1024) return `${fmt(value / 1024 / 1024, 1)} MB`;
+  if (value >= 1024) return `${fmt(value / 1024, 1)} KB`;
+  return `${fmt(value, 0)} B`;
 }
 
 function priceDigits(pair) {

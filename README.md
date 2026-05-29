@@ -132,7 +132,9 @@ The current dashboard can show:
 - maker order statistics with fill rate, cancel rate, active count and other statuses,
 - health/alerts page with systemd status, last tick age, stale maker checks and recent redacted error-like journal lines,
 - settings view per pair with important fields grouped first, editable whitelisted non-secret strategy fields, disabled/default fields that can be explicitly enabled, diff preview, risk warnings, `.env` backup and service restart,
-- guarded `ORDER_MODE` switching between `maker` and `market`/taker mode, with warnings and active-maker-order protection.
+- guarded `ORDER_MODE` switching between `maker` and `market`/taker mode, with warnings and active-maker-order protection,
+- service controls for starting, pausing/stopping and restarting the allowed pair services,
+- protected downloads for generated HTML/CSV reports from `reports/`.
 
 Create a private local config:
 
