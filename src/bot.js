@@ -190,6 +190,10 @@ async function runBatchStrategy({ client, config, snapshot }) {
       price: snapshot.price,
       now: snapshot.at
     });
+    result.nextSellPrice = nextOpenBatchSellPrice(
+      result.simulatedBatches.filter((batch) => batch.status === "OPEN"),
+      config.takeProfitRisePct
+    );
     return result;
   }
 
@@ -452,8 +456,20 @@ async function runBatchStrategy({ client, config, snapshot }) {
   saveBatches(config.logDir, updatedBatches);
   saveDustBank(config.logDir, updatedDustBank);
   result.openBatchesAfter = updatedBatches.filter((batch) => batch.status === "OPEN").length;
+  result.nextSellPrice = nextOpenBatchSellPrice(
+    updatedBatches.filter((batch) => batch.status === "OPEN"),
+    config.takeProfitRisePct
+  );
   result.dustBankAfter = updatedDustBank.quantity || 0;
   return result;
+}
+
+function nextOpenBatchSellPrice(openBatches, takeProfitRisePct) {
+  const multiplier = 1 + Math.abs(Number(takeProfitRisePct || 0)) / 100;
+  const prices = openBatches
+    .map((batch) => Number(batch.averagePrice || 0) * multiplier)
+    .filter((price) => Number.isFinite(price) && price > 0);
+  return prices.length ? Math.min(...prices) : null;
 }
 
 async function recoverStaleMakerOrders({ client, config, now, batches, dustBank, orderEvents }) {

@@ -121,11 +121,13 @@ export async function notifyDailyReportIfNeeded(config, result) {
       title: `${config.instrument} daily bot report`,
       message: [
         `Price: ${formatNumber(result.price)} ${config.quoteAsset}`,
+        `Next sell price: ${formatNumber(result.nextSellPrice)} ${config.quoteAsset}`,
         `Portfolio value: ${formatNumber(result.portfolio?.totalQuoteValue)} ${config.quoteAsset}`,
         `Open batches: ${result.openBatchesAfter ?? result.openBatchesBefore ?? "n/a"}`
       ].join("\n"),
       data: {
         price: result.price,
+        nextSellPrice: result.nextSellPrice ?? null,
         portfolioValue: result.portfolio?.totalQuoteValue,
         openBatches: result.openBatchesAfter ?? result.openBatchesBefore ?? null
       }
