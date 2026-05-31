@@ -122,12 +122,15 @@ export async function notifyDailyReportIfNeeded(config, result) {
       message: [
         `Price: ${formatNumber(result.price)} ${config.quoteAsset}`,
         `Next sell price: ${formatNumber(result.nextSellPrice)} ${config.quoteAsset}`,
+        `${config.quoteAsset} balance: ${formatNumber(result.portfolio?.quoteAvailable)} available / ${formatNumber(result.portfolio?.quoteTotal)} total`,
         `Portfolio value: ${formatNumber(result.portfolio?.totalQuoteValue)} ${config.quoteAsset}`,
         `Open batches: ${result.openBatchesAfter ?? result.openBatchesBefore ?? "n/a"}`
       ].join("\n"),
       data: {
         price: result.price,
         nextSellPrice: result.nextSellPrice ?? null,
+        quoteAvailable: result.portfolio?.quoteAvailable ?? null,
+        quoteTotal: result.portfolio?.quoteTotal ?? null,
         portfolioValue: result.portfolio?.totalQuoteValue,
         openBatches: result.openBatchesAfter ?? result.openBatchesBefore ?? null
       }
