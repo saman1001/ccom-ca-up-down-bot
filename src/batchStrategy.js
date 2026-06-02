@@ -33,13 +33,26 @@ export function buildBatchPlan({ batches, dustBank, instrumentRules, price, conf
   for (const batch of batches.filter((item) => item.status === "OPEN")) {
     if (price <= batch.averagePrice * averageDownMultiplier) {
       const remainingCapacity = Math.max(0, config.maxBatchQuantity - batch.quantity);
-      const quantityToBuy = Math.min(averageDownQuantity, remainingCapacity);
+      const requestedQuantityToBuy = Math.min(averageDownQuantity, remainingCapacity);
+      const quantityToBuy = roundDownQuantity(requestedQuantityToBuy, instrumentRules);
       if (quantityToBuy <= 0) {
         actions.push({
           kind: "HOLD_MAX_SIZE",
           batchId: batch.id,
           order: null,
-          reason: `Batch already reached max size of ${config.maxBatchQuantity} ${config.baseAsset}.`
+          reason:
+            remainingCapacity > 0
+              ? "Remaining batch capacity is below the tradable instrument quantity."
+              : `Batch already reached max size of ${config.maxBatchQuantity} ${config.baseAsset}.`
+        });
+        continue;
+      }
+      if (isBelowMinNotional(quantityToBuy, price, instrumentRules)) {
+        actions.push({
+          kind: "HOLD_BELOW_MIN_NOTIONAL",
+          batchId: batch.id,
+          order: null,
+          reason: "Batch buy value is below the instrument minimum notional."
         });
         continue;
       }
@@ -51,7 +64,7 @@ export function buildBatchPlan({ batches, dustBank, instrumentRules, price, conf
           instrument_name: config.instrument,
           side: "BUY",
           type: "MARKET",
-          quantity: trimQuantity(quantityToBuy)
+          quantity: formatOrderQuantity(quantityToBuy, instrumentRules)
         },
         reason: `Current price is at least ${config.averageDownDropPct}% below batch average.`
       });
