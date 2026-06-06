@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
-import { openSqlite, sqlitePath } from "./sqliteStore.js";
+import { readBotDataSource } from "./dataSource.js";
 
 const SAFE_SETTING_KEYS = [
   "INSTRUMENT",
@@ -164,55 +164,7 @@ function buildPairPayload(config) {
 }
 
 function readPairSource(config) {
-  const mode = String(process.env.WEB_DATA_SOURCE || "auto").toLowerCase();
-  if (mode !== "logs") {
-    const sqlite = readPairSourceSqlite(config);
-    if (sqlite || mode === "sqlite") {
-      return sqlite || readPairSourceLogs(config, "logs-fallback");
-    }
-  }
-  return readPairSourceLogs(config, "logs");
-}
-
-function readPairSourceSqlite(config) {
-  try {
-    const db = openSqlite(config.logDir);
-    if (!db) return null;
-    const snapshots = db.prepare("SELECT snapshot_json FROM snapshots ORDER BY at").all().map((row) => JSON.parse(row.snapshot_json));
-    if (!snapshots.length) return null;
-    const orderEvents = db.prepare("SELECT event_json FROM order_events ORDER BY at, id").all().map((row) => JSON.parse(row.event_json));
-    const batches = readStateFromDb(db, "batches", []);
-    const dustBank = readStateFromDb(db, "dust_bank", { quantity: 0, entries: [], sells: [] });
-    return {
-      source: "sqlite",
-      sqlitePath: sqlitePath(config.logDir),
-      batches,
-      dustBank,
-      snapshots,
-      orderEvents
-    };
-  } catch (error) {
-    if (String(process.env.WEB_DATA_SOURCE || "auto").toLowerCase() === "sqlite") {
-      console.error(`[web] sqlite source failed for ${config.instrument}: ${error.message}`);
-    }
-    return null;
-  }
-}
-
-function readPairSourceLogs(config, source) {
-  return {
-    source,
-    sqlitePath: null,
-    batches: readJson(path.join(config.logDir, "batches.json"), []),
-    dustBank: readJson(path.join(config.logDir, "dust-bank.json"), { quantity: 0, entries: [], sells: [] }),
-    snapshots: readJsonl(path.join(config.logDir, "snapshots.jsonl")),
-    orderEvents: readJsonl(path.join(config.logDir, "orders.jsonl"))
-  };
-}
-
-function readStateFromDb(db, name, fallback) {
-  const row = db.prepare("SELECT json FROM state WHERE name = ?").get(name);
-  return row ? JSON.parse(row.json) : fallback;
+  return readBotDataSource(config, { mode: process.env.WEB_DATA_SOURCE || process.env.BOT_DATA_SOURCE || "auto" });
 }
 
 function buildTotals(pairs) {
@@ -819,31 +771,6 @@ function readDotEnv(filePath) {
     if (key) env[key] = value;
   }
   return env;
-}
-
-function readJson(filePath, fallback) {
-  if (!fs.existsSync(filePath)) return fallback;
-  try {
-    return JSON.parse(fs.readFileSync(filePath, "utf8"));
-  } catch {
-    return fallback;
-  }
-}
-
-function readJsonl(filePath) {
-  if (!fs.existsSync(filePath)) return [];
-  return fs
-    .readFileSync(filePath, "utf8")
-    .split(/\r?\n/)
-    .filter(Boolean)
-    .map((line) => {
-      try {
-        return JSON.parse(line);
-      } catch {
-        return null;
-      }
-    })
-    .filter(Boolean);
 }
 
 function systemctlIsActive(serviceName) {

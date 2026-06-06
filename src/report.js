@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadConfig } from "./config.js";
+import { readBotDataSource } from "./dataSource.js";
 
 const __filename = fileURLToPath(import.meta.url);
 
@@ -16,11 +17,17 @@ export function generateReport(options = {}) {
   const dailyCsvPath = path.join(reportDir, `${slugify(config.instrument)}-daily.csv`);
   const indexPath = path.join(reportDir, "index.html");
 
-  const batches = readJson(path.join(logDir, "batches.json"), []);
-  const dustBank = readJson(path.join(logDir, "dust-bank.json"), { quantity: 0, entries: [], sells: [] });
-  const snapshots = readJsonl(path.join(logDir, "snapshots.jsonl"));
-  const orderEvents = readJsonl(path.join(logDir, "orders.jsonl"));
-  const data = buildReportData({ config, batches, dustBank, snapshots, orderEvents });
+  const source = readBotDataSource(config, {
+    mode: options.dataSource || process.env.REPORT_DATA_SOURCE || process.env.BOT_DATA_SOURCE || "auto"
+  });
+  const data = buildReportData({
+    config,
+    batches: source.batches,
+    dustBank: source.dustBank,
+    snapshots: source.snapshots,
+    orderEvents: source.orderEvents,
+    source
+  });
 
   fs.mkdirSync(reportDir, { recursive: true });
   fs.writeFileSync(reportPath, renderDashboard(data), "utf8");
@@ -44,7 +51,7 @@ export function generateReport(options = {}) {
   return result;
 }
 
-function buildReportData({ config, batches, dustBank, snapshots, orderEvents = [] }) {
+function buildReportData({ config, batches, dustBank, snapshots, orderEvents = [], source = null }) {
   const openBatches = batches.filter((batch) => batch.status === "OPEN");
   const closedBatches = batches.filter((batch) => batch.status === "CLOSED");
   const latest = snapshots.at(-1) || null;
@@ -102,22 +109,10 @@ function buildReportData({ config, batches, dustBank, snapshots, orderEvents = [
     feeStats,
     feePeriodStats,
     annualizedStats,
+    dataSource: source?.source || "logs",
+    sqlitePath: source?.sqlitePath || null,
     dashboardTitle: `${config.instrument} Bot Dashboard`
   };
-}
-
-function readJson(filePath, fallback) {
-  if (!fs.existsSync(filePath)) return fallback;
-  return JSON.parse(fs.readFileSync(filePath, "utf8"));
-}
-
-function readJsonl(filePath) {
-  if (!fs.existsSync(filePath)) return [];
-  return fs
-    .readFileSync(filePath, "utf8")
-    .split(/\r?\n/)
-    .filter(Boolean)
-    .map((line) => JSON.parse(line));
 }
 
 function realizedPnl(batch) {
@@ -722,7 +717,9 @@ function renderDashboard(data) {
     makerStats,
     feeStats,
     feePeriodStats,
-    annualizedStats
+    annualizedStats,
+    dataSource,
+    sqlitePath
   } = data;
   const chartData = recentSnapshots.map((snapshot) => ({
     at: snapshot.at,
@@ -792,7 +789,7 @@ function renderDashboard(data) {
 <body>
   <header>
     <h1>${escapeHtml(dashboardTitle)}</h1>
-    <div class="muted">Generated ${escapeHtml(new Date().toISOString())}. Latest bot tick: ${escapeHtml(latest?.at || "none")}.</div>
+    <div class="muted">Generated ${escapeHtml(new Date().toISOString())}. Latest bot tick: ${escapeHtml(latest?.at || "none")}. Data source: ${escapeHtml(dataSourceLabel(dataSource))}${sqlitePath ? ` (${escapeHtml(displayPath(sqlitePath))})` : ""}.</div>
   </header>
   <main class="grid">
     <div class="grid metrics">
@@ -1252,6 +1249,17 @@ function link(fileName, label) {
 
 function linkIfExists(reportDir, fileName, label) {
   return fs.existsSync(path.join(reportDir, fileName)) ? link(fileName, label) : "";
+}
+
+function dataSourceLabel(source) {
+  if (source === "sqlite") return "SQLite";
+  if (source === "logs-fallback") return "Logs fallback";
+  if (source === "sqlite-unavailable") return "SQLite unavailable";
+  return "Logs";
+}
+
+function displayPath(filePath) {
+  return path.relative(process.cwd(), filePath) || ".";
 }
 
 function closedBatchTable(rows) {

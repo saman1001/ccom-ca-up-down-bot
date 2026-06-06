@@ -345,7 +345,7 @@ The SQLite database contains:
 - `price_history` - one price row per UTC hour and instrument,
 - `state` - latest `batches` and `dust_bank` JSON state.
 
-The existing JSON/JSONL/CSV log files are still written as a safety backup and for the current reports. Do not commit SQLite databases to GitHub because they contain private balances and trading history.
+The existing JSON/JSONL/CSV log files are still written as a safety backup and fallback. Web data and generated reports use SQLite first in `auto` mode when the database has migrated data. Do not commit SQLite databases to GitHub because they contain private balances and trading history.
 
 To import existing log files into SQLite for the active env file:
 
@@ -360,6 +360,21 @@ ENV_FILE=.env.cro-usd node src/migrate-sqlite.js
 ENV_FILE=.env.btc-usd node src/migrate-sqlite.js
 ```
 
+Data source controls:
+
+```env
+# Shared default for readers that support SQLite/logs.
+BOT_DATA_SOURCE=auto
+
+# Web-specific override.
+WEB_DATA_SOURCE=auto
+
+# Report-specific override.
+REPORT_DATA_SOURCE=auto
+```
+
+`auto` means SQLite first, then JSON/JSONL logs if SQLite has no data yet. Use `sqlite` to read only SQLite, or `logs` to read only the original log files.
+
 Set `ENABLE_SQLITE=false` only if you need to temporarily disable SQLite writes while debugging.
 
 ## Reports
@@ -368,6 +383,13 @@ Generate a report for the active env/log directory:
 
 ```bash
 node src/report.js
+```
+
+Reports use SQLite first by default and show the chosen data source in the generated HTML header. To force one source:
+
+```bash
+REPORT_DATA_SOURCE=sqlite node src/report.js
+REPORT_DATA_SOURCE=logs node src/report.js
 ```
 
 For multiple pairs:

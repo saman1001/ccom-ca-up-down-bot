@@ -87,6 +87,7 @@
 - [x] Pridat spolocny index reportov, ktory odkazuje na dashboardy vsetkych parov.
 - [x] Pridat maker order statistiky: fill rate, cancel rate, priemerny/median/najdlhsi cas do fillu, cas do cancelu a rozpad podla typu orderu.
 - [x] Opravit maker statistiky tak, aby sa pending eventy zoskupovali podla `client_oid` a `NO_FILL`/`CREATED` sa ratalo ako canceled/nevyplnene.
+- [x] Prepnout reporty na SQLite-first citanie s fallbackom na povodne JSON/JSONL logy.
 
 ## Prevadzka na VPS
 
@@ -100,6 +101,7 @@
 - [x] Pridat prikaz na rychle pregenerovanie a stiahnutie reportov.
 - [x] Pridat SQLite databazu pre kazdy par ako zaklad pre buduce webove UI.
 - [x] Pridat migracny prikaz, ktory natiahne existujuce logy do SQLite.
+- [x] Zjednotit citanie runtime dat cez spolocnu SQLite/logs vrstvu pre web a reporty.
 
 ## Upozornenia
 
@@ -144,6 +146,7 @@ Toto robit postupne a bezpecne: najprv read-only dashboard, potom az po kontrole
 
 - [x] Pripravit SQLite databazu ako jednoduchy medzikrok medzi JSON logmi a web UI.
 - [x] Pridat migraciu existujucich logov do SQLite.
+- [x] Pouzivat SQLite ako primarny zdroj dat pre web a reporty v `auto` rezime, s logmi ako fallbackom.
 - [x] Pridat jednoduchy private web server viazany defaultne na `127.0.0.1`.
 - [x] Pridat jednoduche prihlasovanie cez lokalny `.env.web` bez commitovania hesla.
 - [x] Pridat prvu read-only web appku bez Reactu a bez runtime zavislosti.
