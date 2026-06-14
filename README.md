@@ -331,7 +331,7 @@ logs/btc-usd/price-history.jsonl
 logs/btc-usd/price-history.csv
 ```
 
-This is meant for later backtests and strategy research. The bot writes at most one row per UTC hour per pair, so service restarts do not create duplicate hourly price points.
+This is meant for later backtests, strategy research and longer web chart ranges. The bot writes at most one row per UTC hour per pair, so service restarts do not create duplicate hourly price points. The web dashboard uses this hourly price history for the price chart when available, with snapshots as a fallback.
 
 CSV columns:
 

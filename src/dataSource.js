@@ -29,12 +29,20 @@ export function readBotDataSourceSqlite(config) {
     if (!db) return null;
     const snapshots = db.prepare("SELECT snapshot_json FROM snapshots ORDER BY at").all().map((row) => JSON.parse(row.snapshot_json));
     const orderEvents = db.prepare("SELECT event_json FROM order_events ORDER BY at, id").all().map((row) => JSON.parse(row.event_json));
+    const priceHistory = db.prepare("SELECT at, instrument, price, quote_asset, source FROM price_history ORDER BY at").all().map((row) => ({
+      at: row.at,
+      instrument: row.instrument,
+      price: Number(row.price),
+      quoteAsset: row.quote_asset,
+      source: row.source
+    }));
     return {
       source: "sqlite",
       sqlitePath: sqlitePath(config.logDir),
       batches: readStateFromDb(db, "batches", []),
       dustBank: readStateFromDb(db, "dust_bank", DEFAULT_DUST_BANK),
       snapshots,
+      priceHistory,
       orderEvents
     };
   } catch (error) {
@@ -52,6 +60,7 @@ export function readBotDataSourceLogs(config, source = "logs") {
     batches: readJson(path.join(config.logDir, "batches.json"), []),
     dustBank: readJson(path.join(config.logDir, "dust-bank.json"), DEFAULT_DUST_BANK),
     snapshots: readJsonl(path.join(config.logDir, "snapshots.jsonl")),
+    priceHistory: readPriceHistoryCsv(path.join(config.logDir, "price-history.csv")),
     orderEvents: readJsonl(path.join(config.logDir, "orders.jsonl"))
   };
 }
@@ -63,6 +72,7 @@ function emptySqliteSource(config, source) {
     batches: [],
     dustBank: DEFAULT_DUST_BANK,
     snapshots: [],
+    priceHistory: [],
     orderEvents: []
   };
 }
@@ -93,6 +103,22 @@ function readJsonl(filePath) {
       } catch {
         return null;
       }
+    })
+    .filter(Boolean);
+}
+
+function readPriceHistoryCsv(filePath) {
+  if (!fs.existsSync(filePath)) return [];
+  return fs
+    .readFileSync(filePath, "utf8")
+    .split(/\r?\n/)
+    .slice(1)
+    .filter(Boolean)
+    .map((line) => {
+      const [at, , instrument, price, quoteAsset, source] = line.split(",");
+      const parsedPrice = Number(price);
+      if (!at || !Number.isFinite(parsedPrice) || parsedPrice <= 0) return null;
+      return { at, instrument, price: parsedPrice, quoteAsset, source };
     })
     .filter(Boolean);
 }

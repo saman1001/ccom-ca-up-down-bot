@@ -109,7 +109,7 @@ function buildPairPayload(config) {
   const dustBank = source.dustBank;
   const snapshots = source.snapshots;
   const orderEvents = source.orderEvents;
-  const reportData = buildReportData({ config, batches, dustBank, snapshots, orderEvents });
+  const reportData = buildReportData({ config, batches, dustBank, snapshots, priceHistory: source.priceHistory || [], orderEvents });
   const latest = reportData.latest;
   const serviceName = serviceNameForInstrument(config.instrument);
   const serviceActive = systemctlIsActive(serviceName);
@@ -210,7 +210,7 @@ function dailyRealizedInclSoldDust(row) {
   return Number(row.realizedCash || 0) + Number(row.dustSoldValue || 0);
 }
 
-function buildReportData({ config, batches, dustBank, snapshots, orderEvents }) {
+function buildReportData({ config, batches, dustBank, snapshots, priceHistory, orderEvents }) {
   const openBatches = batches.filter((batch) => batch.status === "OPEN");
   const closedBatches = batches.filter((batch) => batch.status === "CLOSED");
   const latest = snapshots.at(-1) || null;
@@ -233,7 +233,7 @@ function buildReportData({ config, batches, dustBank, snapshots, orderEvents }) 
     openBatches,
     closedBatches,
     closedStats,
-    recentSnapshots: snapshots.slice(-240),
+    recentSnapshots: chartSourcePoints({ snapshots, priceHistory }),
     recentOrders: orders.slice(-50).reverse(),
     orders,
     makerStats: buildMakerOrderStats(orders),
@@ -705,6 +705,14 @@ function buildChartPoints(snapshots, batches) {
   }
 
   return points;
+}
+
+function chartSourcePoints({ snapshots, priceHistory }) {
+  const history = (priceHistory || [])
+    .filter((row) => row.at && Number(row.price) > 0)
+    .map((row) => ({ at: row.at, price: row.price }));
+  if (history.length) return history;
+  return snapshots.slice(-240);
 }
 
 function batchTradeMarkers(batches) {
