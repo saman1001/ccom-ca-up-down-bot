@@ -19,6 +19,8 @@ const EDITABLE_SETTINGS = [
   "AVERAGE_DOWN_DROP_PCT",
   "TAKE_PROFIT_RISE_PCT",
   "BUY_BASE_BATCH_EVERY_RUN",
+  "DRY_RUN",
+  "ENABLE_TRADING",
   "BASE_BUY_COOLDOWN_MINUTES",
   "DAILY_BASE_BUY_LIMIT",
   "FORCE_BASE_BUY_WEEKLY_LIMIT",
@@ -42,13 +44,16 @@ const READONLY_SETTINGS = [
   "QUOTE_ASSET",
   "LOG_DIR",
   "STRATEGY",
-  "DRY_RUN",
-  "ENABLE_TRADING",
   "API_KEY_CONFIGURED",
   "API_SECRET_CONFIGURED",
   "SERVICE_NAME"
 ];
 const SETTINGS_GROUPS = [
+  {
+    title: "Trading rezim",
+    note: "Live obchodovanie je aktivne iba ked DRY_RUN=false a ENABLE_TRADING=true.",
+    keys: ["DRY_RUN", "ENABLE_TRADING"]
+  },
   {
     title: "Najcastejsie",
     note: "Percenta zisku/dokupu a limity novych zakladnych nakupov.",
@@ -84,7 +89,7 @@ const SETTINGS_GROUPS = [
     keys: READONLY_SETTINGS
   }
 ];
-const BOOLEAN_SETTINGS = new Set(["BUY_BASE_BATCH_EVERY_RUN"]);
+const BOOLEAN_SETTINGS = new Set(["BUY_BASE_BATCH_EVERY_RUN", "DRY_RUN", "ENABLE_TRADING"]);
 const SETTING_OPTIONS = {
   ORDER_MODE: [
     { value: "maker", label: "maker limit" },
@@ -98,6 +103,8 @@ const DEFAULT_SETTING_VALUES = {
   FORCE_BASE_BUY_WEEKLY_LIMIT: "0",
   BASE_BUY_COOLDOWN_MINUTES: "0",
   BUY_BASE_BATCH_EVERY_RUN: "false",
+  DRY_RUN: "true",
+  ENABLE_TRADING: "false",
   MIN_QUOTE_BALANCE: "0",
   MAX_SUSPICIOUS_PRICE_MOVE_PCT: "0",
   CHECK_INTERVAL_MINUTES: "60",
@@ -411,7 +418,7 @@ function pairDetail(pair) {
 function settingsPage() {
   const activePair = pairByInstrument(state.settingsPair) || state.data.pairs[0];
   return `
-    ${banner("warn", "Nastavenia menia realny bot", "Upravovat sa daju iba whitelist polia. API kluce, emaily, LOG_DIR, trading ON/OFF a pary sa cez web nemenia. Pred ulozenim sa ukaze diff a vytvori sa zaloha .env.")}
+    ${banner("warn", "Nastavenia menia realny bot", "Upravovat sa daju iba whitelist polia. API kluce, emaily, LOG_DIR a pary sa cez web nemenia. Trading rezim sa meni cez DRY_RUN/ENABLE_TRADING s diffom, varovaniami, zalohou .env a restartom sluzby.")}
     ${state.settingsMessage ? banner(state.settingsMessage.level, state.settingsMessage.title, state.settingsMessage.text) : ""}
     <div class="settings-pair-tabs tabs">
       ${state.data.pairs.map((pair) => `<button data-settings-pair="${pair.instrument}" class="${activePair?.instrument === pair.instrument ? "active" : ""}">${pair.instrument.replace("_", " / ")}</button>`).join("")}

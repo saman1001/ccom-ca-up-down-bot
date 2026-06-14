@@ -179,5 +179,5 @@ Toto robit postupne a bezpecne: najprv read-only dashboard, potom az po kontrole
 - [x] Umoznit chranene prepnutie `ORDER_MODE` medzi maker a market/taker rezimom s ochranou pri aktivnych maker orderoch.
 - [x] Umoznit bezpecny restart sluzby po zmene nastaveni.
 - [x] Pridat service control tlacidla pre start, pause/stop a restart povolenych bot sluzieb.
-- [ ] Pridat samostatne tlacidlo alebo flow pre dry-run rezim.
+- [x] Pridat samostatny flow pre dry-run/live rezim cez `DRY_RUN` a `ENABLE_TRADING` s diffom, varovaniami, zalohou a restartom sluzby.
 - [ ] Pridat lepsiu spravu pouzivatelov alebo dalsiu ochranu ako Cloudflare Access/VPN/Tailscale, ak bude web pouzivany castejsie alebo viac ludmi.

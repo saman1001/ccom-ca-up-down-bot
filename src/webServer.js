@@ -28,6 +28,8 @@ const EDITABLE_SETTING_KEYS = new Set([
   "AVERAGE_DOWN_DROP_PCT",
   "TAKE_PROFIT_RISE_PCT",
   "BUY_BASE_BATCH_EVERY_RUN",
+  "DRY_RUN",
+  "ENABLE_TRADING",
   "DUST_SELL_QUANTITY",
   "MIN_QUOTE_BALANCE",
   "MAX_SUSPICIOUS_PRICE_MOVE_PCT",
@@ -37,7 +39,7 @@ const EDITABLE_SETTING_KEYS = new Set([
   "MAKER_ORDER_TIMEOUT_MINUTES",
   "MAKER_REPRICE_AFTER_MINUTES"
 ]);
-const BOOLEAN_SETTING_KEYS = new Set(["BUY_BASE_BATCH_EVERY_RUN"]);
+const BOOLEAN_SETTING_KEYS = new Set(["BUY_BASE_BATCH_EVERY_RUN", "DRY_RUN", "ENABLE_TRADING"]);
 const PAIR_CREATE_NUMERIC_KEYS = [
   "BATCH_QUANTITY",
   "AVERAGE_DOWN_QUANTITY",
@@ -465,6 +467,20 @@ function settingsRiskWarnings(pair, env, changes) {
   const makerTimeout = number("MAKER_ORDER_TIMEOUT_MINUTES");
   const makerReprice = number("MAKER_REPRICE_AFTER_MINUTES");
   const orderModeChange = changes.find((change) => change.key === "ORDER_MODE");
+  const dryRun = bool("DRY_RUN");
+  const tradingEnabled = bool("ENABLE_TRADING");
+
+  if (changed.has("DRY_RUN") || changed.has("ENABLE_TRADING")) {
+    if (!dryRun && tradingEnabled) {
+      warnings.push("LIVE TRADING will be enabled after apply: DRY_RUN=false and ENABLE_TRADING=true. The bot can place real orders after restart.");
+    } else if (dryRun && tradingEnabled) {
+      warnings.push("ENABLE_TRADING is true, but DRY_RUN is also true, so the bot should still simulate instead of placing real orders.");
+    } else if (!dryRun && !tradingEnabled) {
+      warnings.push("DRY_RUN is false, but ENABLE_TRADING is false, so the bot should not place orders. This is a paused trading configuration.");
+    } else {
+      warnings.push("Dry-run mode is enabled and live trading is disabled.");
+    }
+  }
 
   if (orderModeChange?.from === "maker" && orderModeChange.to === "market") {
     warnings.push("ORDER_MODE changes from maker to market/taker; new orders may fill immediately but can pay taker fees and get worse execution price.");

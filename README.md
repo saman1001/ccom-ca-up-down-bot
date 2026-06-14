@@ -132,6 +132,7 @@ The current dashboard can show:
 - maker order statistics with fill rate, cancel rate, active count and other statuses,
 - health/alerts page with systemd status, last tick age, stale maker checks and recent redacted error-like journal lines,
 - settings view per pair with important fields grouped first, editable whitelisted non-secret strategy fields, disabled/default fields that can be explicitly enabled, diff preview, risk warnings, `.env` backup and service restart,
+- guarded dry-run/live trading switches per pair through `DRY_RUN` and `ENABLE_TRADING`; live trading requires `DRY_RUN=false` and `ENABLE_TRADING=true`,
 - guarded `ORDER_MODE` switching between `maker` and `market`/taker mode, with warnings and active-maker-order protection,
 - service controls for starting, pausing/stopping and restarting the allowed pair services,
 - a protected new-pair wizard that creates a private `.env.<pair>` with its own Crypto.com API key/secret, log directory, SQLite database, report and systemd service in dry-run mode,
