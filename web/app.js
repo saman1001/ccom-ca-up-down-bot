@@ -10,7 +10,8 @@ const state = {
   settingsPreview: null,
   settingsMessage: null,
   serviceMessage: null,
-  pairCreateMessage: null
+  pairCreateMessage: null,
+  instrumentRules: null
 };
 
 const CHART_RANGES = ["24h", "3d", "7d", "30d", "year", "all"];
@@ -610,6 +611,12 @@ function newPairPage() {
               ${newPairField("apiKey", "API key", "", "Novy API key z burzy pre tento konkretny par.", "text", "off")}
               ${newPairField("apiSecret", "API secret", "", "API secret sa ulozi len do privatneho .env suboru.", "password", "new-password")}
             </div>
+            <div class="settings-actions">
+              <button class="btn" type="button" data-check-instrument>Skontrolovat pravidla instrumentu</button>
+            </div>
+            <div id="instrument-rules-result" class="instrument-rules">
+              ${instrumentRulesPanel(state.instrumentRules)}
+            </div>
           </section>
 
           <section class="settings-group">
@@ -657,6 +664,81 @@ function newPairPage() {
       </div>
     </div>
   `;
+}
+
+function instrumentRulesPanel(info, form = null) {
+  if (!info) {
+    return `
+      <div class="empty compact">
+        Najprv zadaj instrument a skontroluj pravidla. Pouziju sa verejne data z Crypto.com, bez API kluca.
+      </div>
+    `;
+  }
+  if (info.error) {
+    return banner("error", "Instrument rules check failed", info.error);
+  }
+
+  const warnings = instrumentQuantityWarnings(info, form);
+  return `
+    <div class="rules-panel">
+      <div class="rules-head">
+        <strong>${escapeHtml(info.instrument)}</strong>
+        <span class="sub">${escapeHtml(info.baseAsset || "-")} / ${escapeHtml(info.quoteAsset || "-")}</span>
+      </div>
+      <div class="settings-list">
+        ${settingRow("Last price", info.lastPrice ? money(info.lastPrice, 8) : "-")}
+        ${settingRow("Recommended min qty", formatAssetQty(info.recommended?.minQuantity))}
+        ${settingRow("Min notional", info.rules?.minNotional ? money(info.rules.minNotional, 2) : "-")}
+        ${settingRow("Min qty", formatAssetQty(info.rules?.minQuantity))}
+        ${settingRow("Qty decimals", fmt(info.rules?.quantityDecimals ?? 0, 0))}
+        ${settingRow("Price decimals", fmt(info.rules?.priceDecimals ?? 0, 0))}
+        ${settingRow("Qty tick", formatAssetQty(info.rules?.quantityTickSize))}
+        ${settingRow("Price tick", formatAssetQty(info.rules?.priceTickSize))}
+      </div>
+      ${warnings.length ? `
+        <div class="risk-box">
+          <strong>Skontroluj davky</strong>
+          <ul>${warnings.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>
+        </div>
+      ` : `<div class="rules-ok"><span class="dot"></span> Davky vo formulari vyzeraju nad odporucanym minimom.</div>`}
+      ${info.warnings?.length ? `
+        <div class="risk-box">
+          <strong>Poznamky z kontroly</strong>
+          <ul>${info.warnings.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>
+        </div>
+      ` : ""}
+    </div>
+  `;
+}
+
+function instrumentQuantityWarnings(info, form = null) {
+  const source = form ? Object.fromEntries(new FormData(form).entries()) : {};
+  const minimum = Number(info?.recommended?.minQuantity || info?.rules?.minQuantity || 0);
+  const warnings = [];
+  if (!minimum) {
+    warnings.push("Burza nevratila jasne minimum; po vytvoreni nechaj par najprv bezat v dry-run.");
+    return warnings;
+  }
+  for (const key of ["BATCH_QUANTITY", "AVERAGE_DOWN_QUANTITY", "MAX_BATCH_QUANTITY", "DUST_SELL_QUANTITY"]) {
+    const raw = String(source[key] || "").trim();
+    if (!raw && key === "AVERAGE_DOWN_QUANTITY") continue;
+    if (!raw) {
+      warnings.push(`${key} este nie je vyplnene.`);
+      continue;
+    }
+    const value = Number(raw);
+    if (!Number.isFinite(value) || value <= 0) {
+      warnings.push(`${key} musi byt kladne cislo.`);
+    } else if (value < minimum) {
+      warnings.push(`${key} je pod odporucanym minimom ${formatAssetQty(minimum)}.`);
+    }
+  }
+  const batch = Number(source.BATCH_QUANTITY || 0);
+  const maxBatch = Number(source.MAX_BATCH_QUANTITY || 0);
+  if (batch > 0 && maxBatch > 0 && maxBatch < batch) {
+    warnings.push("MAX_BATCH_QUANTITY je mensie ako BATCH_QUANTITY.");
+  }
+  return warnings;
 }
 
 function newPairField(name, label, value, help, type = "text", autocomplete = "off") {
@@ -1132,6 +1214,10 @@ function metric(label, value, numericTone = null) {
   return `<div><div class="metric-label">${label}</div><div class="metric-value ${numericTone === null ? "" : tone(numericTone)}">${value}</div></div>`;
 }
 
+function settingRow(label, value) {
+  return `<div class="setting"><span>${escapeHtml(label)}</span><span>${escapeHtml(value)}</span></div>`;
+}
+
 function banner(level, title, text) {
   return `<div class="banner ${level}"><span class="dot ${level === "error" ? "error" : level === "warn" ? "warn" : ""}"></span><div><div class="banner-title">${escapeHtml(title)}</div><div class="banner-sub">${escapeHtml(text)}</div></div></div>`;
 }
@@ -1213,6 +1299,17 @@ function bindEvents() {
   document.querySelectorAll("[data-service-action]").forEach((button) => {
     button.addEventListener("click", async () => controlService(button.dataset.servicePair, button.dataset.serviceAction));
   });
+  document.querySelector("[data-check-instrument]")?.addEventListener("click", async () => checkInstrumentRules());
+  const newPairForm = document.querySelector("[data-new-pair-form]");
+  if (newPairForm) {
+    newPairForm.querySelectorAll("input[name='BATCH_QUANTITY'], input[name='AVERAGE_DOWN_QUANTITY'], input[name='MAX_BATCH_QUANTITY'], input[name='DUST_SELL_QUANTITY']").forEach((input) => {
+      input.addEventListener("input", () => refreshInstrumentRulesPanel(newPairForm));
+    });
+    newPairForm.querySelector("input[name='instrument']")?.addEventListener("input", () => {
+      state.instrumentRules = null;
+      refreshInstrumentRulesPanel(newPairForm);
+    });
+  }
   document.querySelector("[data-new-pair-form]")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     await createPair(event.currentTarget);
@@ -1224,6 +1321,34 @@ function bindEvents() {
     });
   });
   document.querySelector("[data-refresh]")?.addEventListener("click", init);
+}
+
+async function checkInstrumentRules() {
+  const form = document.querySelector("[data-new-pair-form]");
+  if (!form) return;
+  const instrument = String(new FormData(form).get("instrument") || "").trim().toUpperCase();
+  const target = document.getElementById("instrument-rules-result");
+  if (!instrument) {
+    state.instrumentRules = { error: "Najprv zadaj instrument, napriklad ETH_USD." };
+    refreshInstrumentRulesPanel(form);
+    return;
+  }
+  if (target) target.innerHTML = `<div class="empty compact">Kontrolujem ${escapeHtml(instrument)} na Crypto.com...</div>`;
+  try {
+    const response = await fetch(`/api/instrument-rules?instrument=${encodeURIComponent(instrument)}`, { cache: "no-store" });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data.ok === false) throw new Error(data.error || `Request failed (${response.status})`);
+    state.instrumentRules = data;
+  } catch (error) {
+    state.instrumentRules = { error: error.message };
+  }
+  refreshInstrumentRulesPanel(form);
+}
+
+function refreshInstrumentRulesPanel(form) {
+  const target = document.getElementById("instrument-rules-result");
+  if (!target) return;
+  target.innerHTML = instrumentRulesPanel(state.instrumentRules, form);
 }
 
 async function reviewSettings(form) {
@@ -1322,6 +1447,7 @@ async function createPair(form) {
       title: "Pair created",
       text: `${result.instrument}: ${result.envFile}, ${result.serviceName}, dry-run service ${result.serviceActive ? "running" : "created"}.`
     };
+    state.instrumentRules = null;
     form.reset();
     await init();
     state.view = "new-pair";
@@ -1442,6 +1568,13 @@ function money(value, digits = 2) {
   const number = Number(value);
   if (!Number.isFinite(number)) return "-";
   return `$${fmt(number, digits)}`;
+}
+
+function formatAssetQty(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number === 0) return number === 0 ? "0" : "-";
+  if (Math.abs(number) >= 1) return fmt(number, Math.min(8, number % 1 === 0 ? 0 : 8)).replace(/\.?0+$/, "");
+  return number.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 12 }).replace(/\.?0+$/, "");
 }
 
 function signedMoney(value) {

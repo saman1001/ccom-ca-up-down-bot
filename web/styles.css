@@ -571,6 +571,27 @@ td { font-size: 13px; }
 .readonly-settings { margin-top: 16px; }
 .api-access { margin-top: 16px; }
 .credentials-form { margin-top: 12px; }
+.instrument-rules { margin-top: 12px; }
+.rules-panel {
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--bg-sunk);
+  padding: 12px;
+}
+.rules-head {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  margin-bottom: 10px;
+}
+.rules-ok {
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-2);
+  font-size: 12px;
+}
 .readonly-settings summary {
   cursor: pointer;
   color: var(--muted);

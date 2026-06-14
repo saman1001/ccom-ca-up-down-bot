@@ -4,7 +4,10 @@ import http from "node:http";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { CryptoComClient } from "./cryptoComClient.js";
 import { loadDotEnv } from "./config.js";
+import { DEFAULT_INSTRUMENT_RULES } from "./instrumentRules.js";
+import { extractTickerPrice } from "./portfolio.js";
 import { buildDashboardPayload } from "./webData.js";
 
 loadDotEnv(path.resolve(".env.web"));
@@ -136,6 +139,10 @@ async function handleRequest(req, res) {
     return sendJson(res, 200, buildReportsPayload());
   }
 
+  if (req.method === "GET" && pathname === "/api/instrument-rules") {
+    return handleInstrumentRules(url, res);
+  }
+
   if (req.method === "POST" && pathname === "/api/pairs/create") {
     return handlePairCreate(req, res);
   }
@@ -255,7 +262,7 @@ async function handleSettingsApply(req, res) {
 
 async function handlePairCreate(req, res) {
   const body = await readJsonBody(req);
-  const result = createPair(body);
+  const result = await createPair(body);
   return sendJson(res, 200, {
     ok: true,
     instrument: result.instrument,
@@ -271,8 +278,15 @@ async function handlePairCreate(req, res) {
     serviceStarted: result.serviceStarted,
     serviceActive: result.serviceActive,
     reportGenerated: result.reportGenerated,
+    instrumentInfo: result.instrumentInfo,
     warnings: result.warnings
   });
+}
+
+async function handleInstrumentRules(url, res) {
+  const instrument = normalizeInstrument(url.searchParams.get("instrument") || "");
+  const info = await loadPublicInstrumentInfo(instrument);
+  return sendJson(res, 200, { ok: true, ...info });
 }
 
 async function handleCredentialsReplace(req, res) {
@@ -552,7 +566,7 @@ function settingsRiskWarnings(pair, env, changes) {
   return warnings;
 }
 
-function createPair(body) {
+async function createPair(body) {
   const instrument = normalizeInstrument(body.instrument);
   const [baseAsset, quoteAsset] = instrument.split("_");
   const apiKey = String(body.apiKey || "").trim();
@@ -574,6 +588,8 @@ function createPair(body) {
   if (unitPath && fs.existsSync(unitPath)) throw httpError(409, `${serviceName} already exists.`);
 
   const settings = normalizeNewPairSettings(body.settings || {});
+  const instrumentInfo = await loadPublicInstrumentInfo(instrument);
+  validateNewPairAgainstInstrumentInfo(settings, instrumentInfo);
   const startService = body.startService !== false;
   const env = {
     CCOM_API_KEY: apiKey,
@@ -612,7 +628,8 @@ function createPair(body) {
 
   const warnings = [
     "New pair is created in DRY_RUN=true and ENABLE_TRADING=false. Review the first ticks before enabling live trading.",
-    "API key and secret were written only to the private env file and are not returned by the web API."
+    "API key and secret were written only to the private env file and are not returned by the web API.",
+    instrumentInfo.recommended?.note || "Instrument rules were checked against Crypto.com public data before creating the pair."
   ];
   let unitCreated = false;
   let daemonReloaded = false;
@@ -654,8 +671,120 @@ function createPair(body) {
     serviceStarted,
     serviceActive,
     reportGenerated,
+    instrumentInfo,
     warnings
   };
+}
+
+async function loadPublicInstrumentInfo(instrument) {
+  const [baseAsset, quoteAsset] = instrument.split("_");
+  const client = publicCryptoClient();
+  const instruments = await client.publicGet("public/get-instruments", {});
+  const row = normalizeInstrumentRows(instruments.result?.data).find((item) => {
+    return item.instrument_name === instrument || item.symbol === instrument || item.i === instrument;
+  });
+
+  if (!row) throw httpError(404, `${instrument} was not found in Crypto.com public instruments.`);
+
+  const rules = {
+    quantityDecimals: numberField(row, ["quantity_decimals", "quantity_decimal", "qty_decimals"], DEFAULT_INSTRUMENT_RULES.quantityDecimals),
+    priceDecimals: numberField(row, ["price_decimals", "price_decimal", "quote_decimals"], DEFAULT_INSTRUMENT_RULES.priceDecimals),
+    priceTickSize: numberField(row, ["price_tick_size", "tick_size"], DEFAULT_INSTRUMENT_RULES.priceTickSize),
+    quantityTickSize: numberField(row, ["qty_tick_size", "quantity_tick_size"], DEFAULT_INSTRUMENT_RULES.quantityTickSize),
+    minQuantity: numberField(row, ["min_quantity", "min_qty", "qty_tick_size", "quantity_tick_size"], DEFAULT_INSTRUMENT_RULES.minQuantity),
+    minNotional: numberField(row, ["min_notional", "min_order_value", "min_order_amount"], DEFAULT_INSTRUMENT_RULES.minNotional)
+  };
+
+  const warnings = [];
+  let lastPrice = null;
+  try {
+    const ticker = await client.publicGet("public/get-tickers", { instrument_name: instrument });
+    lastPrice = extractTickerPrice(ticker, instrument);
+  } catch (error) {
+    warnings.push(`Last price could not be loaded for ${instrument}: ${error.message}`);
+  }
+
+  const minNotionalQuantity = rules.minNotional > 0 && lastPrice > 0 ? rules.minNotional / lastPrice : 0;
+  const rawRecommendedMinQuantity = Math.max(
+    Number(rules.minQuantity || 0),
+    Number(rules.quantityTickSize || 0),
+    Number(minNotionalQuantity || 0)
+  );
+  const recommendedMinQuantity = rawRecommendedMinQuantity > 0
+    ? roundUpByRules(rawRecommendedMinQuantity, rules)
+    : 0;
+
+  return {
+    instrument,
+    baseAsset,
+    quoteAsset,
+    lastPrice,
+    rules,
+    recommended: {
+      minQuantity: recommendedMinQuantity,
+      minNotionalQuantity,
+      estimatedMinNotional: recommendedMinQuantity && lastPrice ? recommendedMinQuantity * lastPrice : null,
+      note: "Instrument rules were checked against Crypto.com public data. Use a batch quantity above the recommended minimum, then test the pair in dry-run first."
+    },
+    warnings
+  };
+}
+
+function publicCryptoClient() {
+  return new CryptoComClient({
+    apiKey: "",
+    apiSecret: "",
+    baseUrl: process.env.CCOM_BASE_URL || "https://api.crypto.com/exchange/v1"
+  });
+}
+
+function normalizeInstrumentRows(data) {
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data?.instruments)) return data.instruments;
+  if (data) return [data];
+  return [];
+}
+
+function numberField(row, names, fallback) {
+  for (const name of names) {
+    const value = Number(row[name]);
+    if (Number.isFinite(value)) return value;
+  }
+  return fallback;
+}
+
+function roundUpByRules(value, rules) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number <= 0) return 0;
+  const tickSize = Number(rules.quantityTickSize || 0);
+  const decimals = Math.max(0, Number(rules.quantityDecimals ?? DEFAULT_INSTRUMENT_RULES.quantityDecimals));
+  let rounded;
+  if (Number.isFinite(tickSize) && tickSize > 0) {
+    rounded = Math.ceil(number / tickSize) * tickSize;
+  } else {
+    const factor = 10 ** decimals;
+    rounded = Math.ceil(number * factor) / factor;
+  }
+  return Number(rounded.toFixed(Math.min(decimals + 2, 12)));
+}
+
+function validateNewPairAgainstInstrumentInfo(settings, info) {
+  const minimum = Number(info.recommended?.minQuantity || info.rules?.minQuantity || 0);
+  if (minimum <= 0) return;
+
+  for (const key of ["BATCH_QUANTITY", "MAX_BATCH_QUANTITY", "DUST_SELL_QUANTITY", "AVERAGE_DOWN_QUANTITY"]) {
+    if (key === "AVERAGE_DOWN_QUANTITY" && !settings[key]) continue;
+    const value = Number(settings[key]);
+    if (Number.isFinite(value) && value > 0 && value < minimum) {
+      throw httpError(400, `${key} is below the recommended minimum for ${info.instrument}. Use at least ${minimum}.`);
+    }
+  }
+
+  const batchQuantity = Number(settings.BATCH_QUANTITY);
+  const maxBatchQuantity = Number(settings.MAX_BATCH_QUANTITY);
+  if (Number.isFinite(batchQuantity) && Number.isFinite(maxBatchQuantity) && maxBatchQuantity < batchQuantity) {
+    throw httpError(400, "MAX_BATCH_QUANTITY must be at least BATCH_QUANTITY.");
+  }
 }
 
 function replaceCredentials(body) {

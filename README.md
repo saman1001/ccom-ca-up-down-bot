@@ -289,6 +289,8 @@ DRY_RUN=true
 ENABLE_TRADING=false
 ```
 
+Before the pair is created, the wizard checks Crypto.com public instrument rules. It shows quantity decimals, price decimals, tick sizes, minimum quantity, minimum notional when available, and a recommended minimum batch quantity based on the latest public price. The server repeats this check before writing the new `.env` file, so too-small batch quantities are rejected even if the browser check is skipped.
+
 Review the first dry-run ticks, report and instrument rules before enabling live trading for the new pair.
 
 Example CRO env file:
