@@ -167,7 +167,8 @@ Toto robit postupne a bezpecne: najprv read-only dashboard, potom az po kontrole
 - [x] Doladit desktop a mobilny dizajn podla dodaneho wireframu.
 - [ ] Navrhnut databazovu vrstvu tak, aby sa dala neskor prepnut zo SQLite na PostgreSQL.
 - [ ] Pre vacsie web UI/API zvazit PostgreSQL ako cielovu produkcnu databazu.
-- [ ] Dorobit bezpecne pridavanie novych obchodnych parov cez web alebo sprievodcu: vytvorit `.env`, log adresar, SQLite migraciu, reporty a systemd sluzbu bez commitovania secretov.
+- [x] Dorobit bezpecne pridavanie novych obchodnych parov cez web alebo sprievodcu: vytvorit `.env`, log adresar, SQLite migraciu, reporty a systemd sluzbu bez commitovania secretov.
+- [ ] Pri pridavani noveho paru nacitat instrument rules z burzy este pred vytvorenim a odporucit minimalnu rozumnu davku.
 - [x] Pridat export/stiahnutie existujucich HTML/CSV reportov az po kontrole ochrany pristupu.
 - [x] Umoznit menit nastavenia strategie cez web UI iba pre whitelist bezpecnych poli.
 - [x] Zobrazit nastavenia po jednotlivych paroch a zoradit najcastejsie parametre hore.

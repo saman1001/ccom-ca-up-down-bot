@@ -38,6 +38,47 @@ const EDITABLE_SETTING_KEYS = new Set([
   "MAKER_REPRICE_AFTER_MINUTES"
 ]);
 const BOOLEAN_SETTING_KEYS = new Set(["BUY_BASE_BATCH_EVERY_RUN"]);
+const PAIR_CREATE_NUMERIC_KEYS = [
+  "BATCH_QUANTITY",
+  "AVERAGE_DOWN_QUANTITY",
+  "MAX_BATCH_QUANTITY",
+  "MAX_OPEN_BATCHES",
+  "DAILY_BASE_BUY_LIMIT",
+  "FORCE_BASE_BUY_WEEKLY_LIMIT",
+  "BASE_BUY_COOLDOWN_MINUTES",
+  "AVERAGE_DOWN_DROP_PCT",
+  "TAKE_PROFIT_RISE_PCT",
+  "DUST_SELL_QUANTITY",
+  "MIN_QUOTE_BALANCE",
+  "MAX_SUSPICIOUS_PRICE_MOVE_PCT",
+  "CHECK_INTERVAL_MINUTES",
+  "MAKER_BOOK_LEVEL",
+  "MAKER_MAX_SPREAD_PCT",
+  "MAKER_ORDER_TIMEOUT_MINUTES",
+  "MAKER_REPRICE_AFTER_MINUTES"
+];
+const PAIR_CREATE_DEFAULTS = {
+  STRATEGY: "batches",
+  ORDER_MODE: "maker",
+  BATCH_QUANTITY: "",
+  AVERAGE_DOWN_QUANTITY: "",
+  MAX_BATCH_QUANTITY: "",
+  MAX_OPEN_BATCHES: "0",
+  DAILY_BASE_BUY_LIMIT: "0",
+  FORCE_BASE_BUY_WEEKLY_LIMIT: "0",
+  BASE_BUY_COOLDOWN_MINUTES: "60",
+  AVERAGE_DOWN_DROP_PCT: "5",
+  TAKE_PROFIT_RISE_PCT: "5",
+  BUY_BASE_BATCH_EVERY_RUN: "true",
+  DUST_SELL_QUANTITY: "",
+  MIN_QUOTE_BALANCE: "25",
+  MAX_SUSPICIOUS_PRICE_MOVE_PCT: "25",
+  CHECK_INTERVAL_MINUTES: "60",
+  MAKER_BOOK_LEVEL: "3",
+  MAKER_MAX_SPREAD_PCT: "0",
+  MAKER_ORDER_TIMEOUT_MINUTES: "15",
+  MAKER_REPRICE_AFTER_MINUTES: "0"
+};
 
 const server = http.createServer(async (req, res) => {
   try {
@@ -91,6 +132,10 @@ async function handleRequest(req, res) {
 
   if (req.method === "GET" && pathname === "/api/reports") {
     return sendJson(res, 200, buildReportsPayload());
+  }
+
+  if (req.method === "POST" && pathname === "/api/pairs/create") {
+    return handlePairCreate(req, res);
   }
 
   if (req.method === "GET" && pathname === "/api/reports/download") {
@@ -199,6 +244,28 @@ async function handleSettingsApply(req, res) {
     backupPath: displayPath(backupPath),
     changes: result.changes,
     restarted
+  });
+}
+
+async function handlePairCreate(req, res) {
+  const body = await readJsonBody(req);
+  const result = createPair(body);
+  return sendJson(res, 200, {
+    ok: true,
+    instrument: result.instrument,
+    envFile: result.envFile,
+    logDir: result.logDir,
+    serviceName: result.serviceName,
+    apiKeyConfigured: true,
+    apiSecretConfigured: true,
+    webEnvUpdated: result.webEnvUpdated,
+    unitCreated: result.unitCreated,
+    daemonReloaded: result.daemonReloaded,
+    serviceEnabled: result.serviceEnabled,
+    serviceStarted: result.serviceStarted,
+    serviceActive: result.serviceActive,
+    reportGenerated: result.reportGenerated,
+    warnings: result.warnings
   });
 }
 
@@ -448,6 +515,217 @@ function settingsRiskWarnings(pair, env, changes) {
   return warnings;
 }
 
+function createPair(body) {
+  const instrument = normalizeInstrument(body.instrument);
+  const [baseAsset, quoteAsset] = instrument.split("_");
+  const apiKey = String(body.apiKey || "").trim();
+  const apiSecret = String(body.apiSecret || "").trim();
+  if (!apiKey) throw httpError(400, "API key is required for a new pair.");
+  if (!apiSecret) throw httpError(400, "API secret is required for a new pair.");
+  if (/[\r\n]/.test(apiKey) || /[\r\n]/.test(apiSecret)) throw httpError(400, "API credentials must be single-line values.");
+
+  const existing = buildDashboardPayload().pairs.find((pair) => pair.instrument === instrument);
+  if (existing) throw httpError(409, `${instrument} already exists.`);
+
+  const slug = slugify(instrument);
+  const envFile = `.env.${slug}`;
+  const logDir = `logs/${slug}`;
+  const serviceName = `ccom-updown-${slug}.service`;
+  const envPath = path.resolve(process.cwd(), envFile);
+  const logPath = path.resolve(process.cwd(), logDir);
+  const unitPath = systemdUnitPath(serviceName);
+
+  if (fs.existsSync(envPath)) throw httpError(409, `${envFile} already exists.`);
+  if (unitPath && fs.existsSync(unitPath)) throw httpError(409, `${serviceName} already exists.`);
+
+  const settings = normalizeNewPairSettings(body.settings || {});
+  const startService = body.startService !== false;
+  const env = {
+    CCOM_API_KEY: apiKey,
+    CCOM_API_SECRET: apiSecret,
+    INSTRUMENT: instrument,
+    BASE_ASSET: baseAsset,
+    QUOTE_ASSET: quoteAsset,
+    LOG_DIR: logDir,
+    STRATEGY: "batches",
+    ORDER_MODE: settings.ORDER_MODE,
+    BATCH_QUANTITY: settings.BATCH_QUANTITY,
+    MAX_BATCH_QUANTITY: settings.MAX_BATCH_QUANTITY,
+    MAX_OPEN_BATCHES: settings.MAX_OPEN_BATCHES,
+    DAILY_BASE_BUY_LIMIT: settings.DAILY_BASE_BUY_LIMIT,
+    FORCE_BASE_BUY_WEEKLY_LIMIT: settings.FORCE_BASE_BUY_WEEKLY_LIMIT,
+    BASE_BUY_COOLDOWN_MINUTES: settings.BASE_BUY_COOLDOWN_MINUTES,
+    AVERAGE_DOWN_DROP_PCT: settings.AVERAGE_DOWN_DROP_PCT,
+    TAKE_PROFIT_RISE_PCT: settings.TAKE_PROFIT_RISE_PCT,
+    BUY_BASE_BATCH_EVERY_RUN: settings.BUY_BASE_BATCH_EVERY_RUN,
+    DUST_SELL_QUANTITY: settings.DUST_SELL_QUANTITY,
+    MIN_QUOTE_BALANCE: settings.MIN_QUOTE_BALANCE,
+    MAX_SUSPICIOUS_PRICE_MOVE_PCT: settings.MAX_SUSPICIOUS_PRICE_MOVE_PCT,
+    CHECK_INTERVAL_MINUTES: settings.CHECK_INTERVAL_MINUTES,
+    DRY_RUN: "true",
+    ENABLE_TRADING: "false",
+    MAKER_BOOK_LEVEL: settings.MAKER_BOOK_LEVEL,
+    MAKER_MAX_SPREAD_PCT: settings.MAKER_MAX_SPREAD_PCT,
+    MAKER_ORDER_TIMEOUT_MINUTES: settings.MAKER_ORDER_TIMEOUT_MINUTES,
+    MAKER_REPRICE_AFTER_MINUTES: settings.MAKER_REPRICE_AFTER_MINUTES
+  };
+  if (settings.AVERAGE_DOWN_QUANTITY) env.AVERAGE_DOWN_QUANTITY = settings.AVERAGE_DOWN_QUANTITY;
+
+  fs.mkdirSync(logPath, { recursive: true });
+  writeNewEnvFile(envPath, env);
+  updateWebEnvFiles(envFile);
+
+  const warnings = [
+    "New pair is created in DRY_RUN=true and ENABLE_TRADING=false. Review the first ticks before enabling live trading.",
+    "API key and secret were written only to the private env file and are not returned by the web API."
+  ];
+  let unitCreated = false;
+  let daemonReloaded = false;
+  let serviceEnabled = false;
+  let serviceStarted = false;
+  let serviceActive = false;
+  let reportGenerated = false;
+
+  if (unitPath) {
+    fs.writeFileSync(unitPath, renderSystemdUnit({ serviceName, envFile }), "utf8");
+    unitCreated = true;
+    daemonReloaded = spawnSync("systemctl", ["daemon-reload"], { encoding: "utf8" }).status === 0;
+    serviceEnabled = spawnSync("systemctl", ["enable", serviceName], { encoding: "utf8" }).status === 0;
+    if (startService) {
+      serviceStarted = spawnSync("systemctl", ["restart", serviceName], { encoding: "utf8" }).status === 0;
+      serviceActive = serviceIsActive(serviceName);
+    }
+  } else {
+    warnings.push("Systemd unit was not created because this platform is not Linux.");
+  }
+
+  const report = spawnSync(process.execPath, ["src/report.js"], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    env: { ...process.env, ENV_FILE: envFile }
+  });
+  reportGenerated = report.status === 0;
+  if (!reportGenerated) warnings.push("Initial report generation did not complete yet; it will be created after the first bot tick.");
+
+  return {
+    instrument,
+    envFile,
+    logDir,
+    serviceName,
+    webEnvUpdated: true,
+    unitCreated,
+    daemonReloaded,
+    serviceEnabled,
+    serviceStarted,
+    serviceActive,
+    reportGenerated,
+    warnings
+  };
+}
+
+function normalizeInstrument(value) {
+  const instrument = String(value || "").trim().toUpperCase();
+  if (!/^[A-Z0-9]{2,15}_[A-Z0-9]{2,15}$/.test(instrument)) {
+    throw httpError(400, "Instrument must look like ETH_USD.");
+  }
+  return instrument;
+}
+
+function normalizeNewPairSettings(rawSettings) {
+  const settings = { ...PAIR_CREATE_DEFAULTS };
+  for (const [key, value] of Object.entries(rawSettings || {})) {
+    if (!Object.prototype.hasOwnProperty.call(settings, key)) continue;
+    settings[key] = String(value ?? "").trim();
+  }
+  if (!["market", "maker"].includes(settings.ORDER_MODE)) throw httpError(400, "ORDER_MODE must be market or maker.");
+  if (!["true", "false"].includes(String(settings.BUY_BASE_BATCH_EVERY_RUN).toLowerCase())) {
+    throw httpError(400, "BUY_BASE_BATCH_EVERY_RUN must be true or false.");
+  }
+  settings.BUY_BASE_BATCH_EVERY_RUN = String(settings.BUY_BASE_BATCH_EVERY_RUN).toLowerCase();
+
+  for (const key of PAIR_CREATE_NUMERIC_KEYS) {
+    if (key === "AVERAGE_DOWN_QUANTITY" && settings[key] === "") continue;
+    if (["BATCH_QUANTITY", "MAX_BATCH_QUANTITY", "DUST_SELL_QUANTITY"].includes(key) && settings[key] === "") {
+      throw httpError(400, `${key} is required.`);
+    }
+    if (settings[key] === "") continue;
+    if (!/^-?\d+(\.\d+)?$/.test(settings[key])) throw httpError(400, `${key} must be a number.`);
+    const number = Number(settings[key]);
+    if (!Number.isFinite(number) || number < 0) throw httpError(400, `${key} must be zero or greater.`);
+    if (["BATCH_QUANTITY", "MAX_BATCH_QUANTITY", "DUST_SELL_QUANTITY", "CHECK_INTERVAL_MINUTES"].includes(key) && number <= 0) {
+      throw httpError(400, `${key} must be greater than zero.`);
+    }
+  }
+  return settings;
+}
+
+function writeNewEnvFile(filePath, env) {
+  const secretKeys = new Set(["CCOM_API_KEY", "CCOM_API_SECRET"]);
+  const lines = [
+    "# Private runtime env. Do not commit this file.",
+    "# Created by the protected web UI.",
+    ...Object.entries(env).map(([key, value]) => `${key}=${formatEnvValue(value, secretKeys.has(key))}`)
+  ];
+  fs.writeFileSync(filePath, `${lines.join("\n")}\n`, { mode: 0o600 });
+  try {
+    fs.chmodSync(filePath, 0o600);
+  } catch {
+    // Best effort on non-POSIX filesystems.
+  }
+}
+
+function formatEnvValue(value, secret) {
+  const text = String(value ?? "");
+  if (!secret && /^[A-Za-z0-9_./:-]+$/.test(text)) return text;
+  return JSON.stringify(text);
+}
+
+function updateWebEnvFiles(envFile) {
+  const webEnvPath = path.resolve(process.cwd(), ".env.web");
+  const current = fs.existsSync(webEnvPath) ? parseEnvFile(webEnvPath) : {};
+  const existing = String(current.WEB_ENV_FILES || process.env.WEB_ENV_FILES || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  if (!existing.includes(envFile)) existing.push(envFile);
+  const value = existing.join(",");
+  if (fs.existsSync(webEnvPath)) {
+    writeEnvFile(webEnvPath, [{ key: "WEB_ENV_FILES", from: current.WEB_ENV_FILES || "", to: value }]);
+  } else {
+    fs.writeFileSync(webEnvPath, `WEB_ENV_FILES=${value}\n`, { mode: 0o600 });
+  }
+  process.env.WEB_ENV_FILES = value;
+}
+
+function systemdUnitPath(serviceName) {
+  if (process.platform !== "linux") return null;
+  return path.join("/etc/systemd/system", serviceName);
+}
+
+function renderSystemdUnit({ serviceName, envFile }) {
+  const name = serviceName.replace(/\.service$/, "");
+  const workdir = process.cwd();
+  const envPath = path.join(workdir, envFile);
+  return `[Unit]
+Description=Crypto.com ${name} batch bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=${workdir}
+Environment=NODE_OPTIONS=--dns-result-order=ipv4first
+Environment=ENV_FILE=${envPath}
+ExecStart=/usr/bin/node src/bot.js watch
+Restart=always
+RestartSec=15
+User=root
+
+[Install]
+WantedBy=multi-user.target
+`;
+}
+
 function buildReportsPayload() {
   const payload = buildDashboardPayload();
   const prefixes = new Set(payload.pairs.map((pair) => slugify(pair.instrument)));
@@ -555,7 +833,7 @@ function controlService(serviceName, action) {
   if (!["start", "stop", "restart"].includes(normalizedAction)) {
     return { ok: false, error: `Unsupported service action ${action}` };
   }
-  if (!/^ccom-updown(-btc)?(\.service)?$/.test(serviceName)) {
+  if (!/^ccom-updown(?:-[a-z0-9-]+)?(\.service)?$/.test(serviceName)) {
     return { ok: false, error: `Refusing to control unexpected service ${serviceName}` };
   }
   const result = spawnSync("systemctl", [normalizedAction, serviceName], { encoding: "utf8" });

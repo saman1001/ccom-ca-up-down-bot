@@ -127,6 +127,8 @@ cd /opt/ccom-ca-up-down-bot
 bash scripts/generate-reports.sh
 ```
 
+Skript prejde vsetky privatne subory typu `.env.<pair>` okrem `.env.web` a zaloh, takze zahrnie aj pary vytvorene cez webovy sprievodca.
+
 Alebo jednotlivo:
 
 ```bash

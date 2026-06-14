@@ -134,6 +134,7 @@ The current dashboard can show:
 - settings view per pair with important fields grouped first, editable whitelisted non-secret strategy fields, disabled/default fields that can be explicitly enabled, diff preview, risk warnings, `.env` backup and service restart,
 - guarded `ORDER_MODE` switching between `maker` and `market`/taker mode, with warnings and active-maker-order protection,
 - service controls for starting, pausing/stopping and restarting the allowed pair services,
+- a protected new-pair wizard that creates a private `.env.<pair>` with its own Crypto.com API key/secret, log directory, SQLite database, report and systemd service in dry-run mode,
 - protected downloads for generated HTML/CSV reports from `reports/`.
 
 Create a private local config:
@@ -276,6 +277,17 @@ Reports include maker order statistics built from saved order details:
 ## Multiple Pairs
 
 One bot process trades one pair. For multiple pairs, run multiple processes or systemd services.
+
+The recommended production setup is one separate Crypto.com API key/secret per pair. This keeps cash-flow management cleaner because each bot can use its own exchange subaccount/API access and its own `.env.<pair>` file. API keys and secrets must stay only in private env files on the VPS and must never be committed to GitHub.
+
+The private web dashboard can create a new pair in a guarded wizard. It writes the API credentials only to the new private env file, adds the env file to `WEB_ENV_FILES`, creates the log directory and systemd service, and starts the service in:
+
+```env
+DRY_RUN=true
+ENABLE_TRADING=false
+```
+
+Review the first dry-run ticks, report and instrument rules before enabling live trading for the new pair.
 
 Example CRO env file:
 

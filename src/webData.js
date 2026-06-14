@@ -26,6 +26,8 @@ const SAFE_SETTING_KEYS = [
   "CHECK_INTERVAL_MINUTES",
   "DRY_RUN",
   "ENABLE_TRADING",
+  "API_KEY_CONFIGURED",
+  "API_SECRET_CONFIGURED",
   "MAKER_BOOK_LEVEL",
   "MAKER_MAX_SPREAD_PCT",
   "MAKER_ORDER_TIMEOUT_MINUTES",
@@ -97,7 +99,7 @@ function configFromEnvFile(envFile) {
     dryRun: boolValue(env.DRY_RUN, true),
     enableTrading: boolValue(env.ENABLE_TRADING, false),
     takeProfitRisePct: numberValue(env.TAKE_PROFIT_RISE_PCT, 5),
-    safeSettings: pickSafeSettings(env, { instrument, baseAsset, quoteAsset, logDir })
+    safeSettings: withCredentialStatus(pickSafeSettings(env, { instrument, baseAsset, quoteAsset, logDir }), env)
   };
 }
 
@@ -750,12 +752,20 @@ function pickSafeSettings(env, defaults) {
 }
 
 function defaultSafeSettings(pair) {
-  return pickSafeSettings({}, {
+  return withCredentialStatus(pickSafeSettings({}, {
     instrument: pair.instrument,
     baseAsset: pair.baseAsset,
     quoteAsset: pair.quoteAsset,
     logDir: path.resolve(pair.logDir)
-  });
+  }), {});
+}
+
+function withCredentialStatus(settings, env) {
+  return {
+    ...settings,
+    API_KEY_CONFIGURED: env.CCOM_API_KEY ? "configured" : "missing",
+    API_SECRET_CONFIGURED: env.CCOM_API_SECRET ? "configured" : "missing"
+  };
 }
 
 function readDotEnv(filePath) {

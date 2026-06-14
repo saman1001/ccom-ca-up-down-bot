@@ -9,7 +9,8 @@ const state = {
   settingsPair: "BTC_USD",
   settingsPreview: null,
   settingsMessage: null,
-  serviceMessage: null
+  serviceMessage: null,
+  pairCreateMessage: null
 };
 
 const CHART_RANGES = ["24h", "3d", "7d", "30d", "year", "all"];
@@ -43,6 +44,8 @@ const READONLY_SETTINGS = [
   "STRATEGY",
   "DRY_RUN",
   "ENABLE_TRADING",
+  "API_KEY_CONFIGURED",
+  "API_SECRET_CONFIGURED",
   "SERVICE_NAME"
 ];
 const SETTINGS_GROUPS = [
@@ -112,6 +115,8 @@ const SETTING_HELP = {
   ORDER_MODE: "Typ orderov, ktore bot pouziva, napr. maker limit rezim.",
   DRY_RUN: "Ak je true, bot iba simuluje a neposiela realne obchody.",
   ENABLE_TRADING: "Ak je true, bot moze realne obchodovat podla strategie.",
+  API_KEY_CONFIGURED: "Bezpecny stav API key; samotny kluc sa nikdy nezobrazuje.",
+  API_SECRET_CONFIGURED: "Bezpecny stav API secret; samotny secret sa nikdy nezobrazuje.",
   SERVICE_NAME: "Systemd sluzba, ktora spusta tento konkretny par.",
   BATCH_QUANTITY: "Velkost zakladnej davky, ktoru bot kupi pri beznom base buy.",
   AVERAGE_DOWN_QUANTITY: "Velkost dokupu pri poklese ceny; ak je prazdna, pouzije sa zakladna davka.",
@@ -228,6 +233,7 @@ function sidebar() {
         <div class="section-label">System</div>
         <nav class="nav">
           ${navButton("settings", "Nastavenia")}
+          ${navButton("new-pair", "Novy par")}
           ${navButton("exports", "Export reportov")}
         </nav>
       </div>
@@ -261,6 +267,8 @@ function topbar() {
     ? state.pair.replace("_", " / ")
     : state.view === "settings"
       ? "Nastavenia"
+      : state.view === "new-pair"
+        ? "Novy par"
       : state.view === "exports"
         ? "Export reportov"
       : state.view === "alerts"
@@ -290,6 +298,7 @@ function dataSourceLabel() {
 function page() {
   if (state.view === "pair") return pairDetail(pairByInstrument(state.pair));
   if (state.view === "settings") return settingsPage();
+  if (state.view === "new-pair") return newPairPage();
   if (state.view === "exports") return exportsPage();
   if (state.view === "alerts") return alertsPage();
   return overviewPage();
@@ -547,6 +556,105 @@ function settingsPreview(pair, preview) {
         </div>
       ` : `<div class="empty compact">Ziadne zmeny na ulozenie.</div>`}
     </div>
+  `;
+}
+
+function newPairPage() {
+  return `
+    ${banner("warn", "Novy par vznikne v dry-run rezime", "API key a secret sa ulozia iba do privatneho .env suboru na VPS. UI ich po ulozeni uz nikdy nezobrazi. ENABLE_TRADING ostane false, kym ho vedome nezapneme neskor.")}
+    ${state.pairCreateMessage ? banner(state.pairCreateMessage.level, state.pairCreateMessage.title, state.pairCreateMessage.text) : ""}
+    <div class="card">
+      <div class="card-head"><h2>Pridat obchodny par</h2><span class="sub">samostatne API, .env, SQLite, report a systemd sluzba</span></div>
+      <div class="card-body">
+        <form class="new-pair-form" data-new-pair-form>
+          <section class="settings-group">
+            <div class="settings-group-head">
+              <h3>Burza a pristup</h3>
+              <p>API pristup bude oddeleny pre tento par, aby sa lepsie manazoval cash flow.</p>
+            </div>
+            <div class="settings-edit-list">
+              ${newPairField("instrument", "Instrument", "ETH_USD", "Obchodny par presne ako na Crypto.com Exchange.")}
+              ${newPairField("apiKey", "API key", "", "Novy API key z burzy pre tento konkretny par.", "text", "off")}
+              ${newPairField("apiSecret", "API secret", "", "API secret sa ulozi len do privatneho .env suboru.", "password", "new-password")}
+            </div>
+          </section>
+
+          <section class="settings-group">
+            <div class="settings-group-head">
+              <h3>Zaklad strategie</h3>
+              <p>Prve hodnoty. Po vytvoreni ich vies doladit v Nastaveniach paru.</p>
+            </div>
+            <div class="settings-edit-list">
+              ${newPairSettingField("BATCH_QUANTITY", "", "Velkost zakladnej davky pre base buy.")}
+              ${newPairSettingField("MAX_BATCH_QUANTITY", "", "Maximalna velkost jednej davky po dokupoch.")}
+              ${newPairSettingField("AVERAGE_DOWN_QUANTITY", "", "Volitelne: ina velkost dokupu; prazdne znamena BATCH_QUANTITY.")}
+              ${newPairSettingField("AVERAGE_DOWN_DROP_PCT", "5", "Pokles pod priemer davky, kedy bot dokupi.")}
+              ${newPairSettingField("TAKE_PROFIT_RISE_PCT", "5", "Rast nad priemer davky, kedy bot predava.")}
+              ${newPairSettingField("MIN_QUOTE_BALANCE", "25", "Minimalny USD zostatok, pod ktorym bot nenakupuje.")}
+            </div>
+          </section>
+
+          <section class="settings-group">
+            <div class="settings-group-head">
+              <h3>Limity a ordery</h3>
+              <p>Bezpecne defaulty pre novy par. Live trading ostava vypnuty.</p>
+            </div>
+            <div class="settings-edit-list">
+              ${newPairSelect("ORDER_MODE", "maker", "Typ orderov pre novy par.", [{ value: "maker", label: "maker limit" }, { value: "market", label: "market / taker" }])}
+              ${newPairSettingField("MAX_OPEN_BATCHES", "0", "Max pocet otvorenych davok; 0 znamena bez limitu.")}
+              ${newPairSettingField("DAILY_BASE_BUY_LIMIT", "0", "Max zakladnych nakupov za UTC den; 0 znamena bez limitu.")}
+              ${newPairSettingField("FORCE_BASE_BUY_WEEKLY_LIMIT", "0", "Vynuteny minimalny pocet base buy za tyzden; 0 vypnute.")}
+              ${newPairSettingField("BASE_BUY_COOLDOWN_MINUTES", "60", "Pauza medzi zakladnymi nakupmi.")}
+              ${newPairSelect("BUY_BASE_BATCH_EVERY_RUN", "true", "Ci sa bot moze pokusit o base buy pri kazdom ticku.", [{ value: "true", label: "true" }, { value: "false", label: "false" }])}
+              ${newPairSettingField("DUST_SELL_QUANTITY", "", "Minimalne mnozstvo dustu na predaj.")}
+              ${newPairSettingField("CHECK_INTERVAL_MINUTES", "60", "Interval watch rezimu v minutach.")}
+              ${newPairSettingField("MAX_SUSPICIOUS_PRICE_MOVE_PCT", "25", "Ochrana pred podozrivym cenovym skokom.")}
+              ${newPairSettingField("MAKER_BOOK_LEVEL", "3", "Uroven order booku pre maker cenu.")}
+              ${newPairSettingField("MAKER_MAX_SPREAD_PCT", "0", "Max spread; 0 vypina spread guard.")}
+              ${newPairSettingField("MAKER_ORDER_TIMEOUT_MINUTES", "15", "Po kolkych minutach je maker order stale.")}
+              ${newPairSettingField("MAKER_REPRICE_AFTER_MINUTES", "0", "Po kolkych minutach sa moze maker order prehodit; 0 vypnute.")}
+            </div>
+          </section>
+
+          <div class="settings-actions">
+            <label class="setting-enable"><input type="checkbox" name="startService" checked> <span>Po vytvoreni spustit dry-run sluzbu</span></label>
+            <button class="btn btn-primary" type="submit">Create pair</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  `;
+}
+
+function newPairField(name, label, value, help, type = "text", autocomplete = "off") {
+  return `
+    <label class="setting-field">
+      <span>${escapeHtml(label)}</span>
+      <input name="${escapeHtml(name)}" value="${escapeHtml(value)}" type="${escapeHtml(type)}" autocomplete="${escapeHtml(autocomplete)}">
+      <small>${escapeHtml(help)}</small>
+    </label>
+  `;
+}
+
+function newPairSettingField(key, value, help) {
+  return `
+    <label class="setting-field">
+      <span>${escapeHtml(key)}</span>
+      <input name="${escapeHtml(key)}" value="${escapeHtml(value)}" inputmode="decimal" autocomplete="off">
+      <small>${escapeHtml(help)}</small>
+    </label>
+  `;
+}
+
+function newPairSelect(key, selected, help, options) {
+  return `
+    <label class="setting-field">
+      <span>${escapeHtml(key)}</span>
+      <select name="${escapeHtml(key)}">
+        ${options.map((option) => `<option value="${escapeHtml(option.value)}" ${selected === option.value ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}
+      </select>
+      <small>${escapeHtml(help)}</small>
+    </label>
   `;
 }
 
@@ -1072,6 +1180,10 @@ function bindEvents() {
   document.querySelectorAll("[data-service-action]").forEach((button) => {
     button.addEventListener("click", async () => controlService(button.dataset.servicePair, button.dataset.serviceAction));
   });
+  document.querySelector("[data-new-pair-form]")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    await createPair(event.currentTarget);
+  });
   document.querySelector("[data-refresh]")?.addEventListener("click", init);
 }
 
@@ -1127,6 +1239,56 @@ async function controlService(instrument, action) {
     await init();
   } catch (error) {
     state.serviceMessage = { level: "error", title: "Service control failed", text: error.message };
+    render();
+  }
+}
+
+async function createPair(form) {
+  state.pairCreateMessage = null;
+  const values = Object.fromEntries(new FormData(form).entries());
+  const settings = {};
+  for (const key of [
+    "ORDER_MODE",
+    "BATCH_QUANTITY",
+    "AVERAGE_DOWN_QUANTITY",
+    "MAX_BATCH_QUANTITY",
+    "MAX_OPEN_BATCHES",
+    "DAILY_BASE_BUY_LIMIT",
+    "FORCE_BASE_BUY_WEEKLY_LIMIT",
+    "BASE_BUY_COOLDOWN_MINUTES",
+    "AVERAGE_DOWN_DROP_PCT",
+    "TAKE_PROFIT_RISE_PCT",
+    "BUY_BASE_BATCH_EVERY_RUN",
+    "DUST_SELL_QUANTITY",
+    "MIN_QUOTE_BALANCE",
+    "MAX_SUSPICIOUS_PRICE_MOVE_PCT",
+    "CHECK_INTERVAL_MINUTES",
+    "MAKER_BOOK_LEVEL",
+    "MAKER_MAX_SPREAD_PCT",
+    "MAKER_ORDER_TIMEOUT_MINUTES",
+    "MAKER_REPRICE_AFTER_MINUTES"
+  ]) {
+    settings[key] = values[key] || "";
+  }
+  try {
+    const result = await postJson("/api/pairs/create", {
+      instrument: values.instrument || "",
+      apiKey: values.apiKey || "",
+      apiSecret: values.apiSecret || "",
+      settings,
+      startService: values.startService === "on"
+    });
+    state.pairCreateMessage = {
+      level: "info",
+      title: "Pair created",
+      text: `${result.instrument}: ${result.envFile}, ${result.serviceName}, dry-run service ${result.serviceActive ? "running" : "created"}.`
+    };
+    form.reset();
+    await init();
+    state.view = "new-pair";
+    render();
+  } catch (error) {
+    state.pairCreateMessage = { level: "error", title: "Pair create failed", text: error.message };
     render();
   }
 }
