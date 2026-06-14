@@ -293,6 +293,8 @@ Before the pair is created, the wizard checks Crypto.com public instrument rules
 
 Review the first dry-run ticks, report and instrument rules before enabling live trading for the new pair.
 
+When the web UI preview changes that would enable live trading (`DRY_RUN=false` and `ENABLE_TRADING=true`), it also checks the pair API account balance. The preview shows available quote balance, base balance, estimated cost of one `BATCH_QUANTITY`, `MIN_QUOTE_BALANCE`, and whether the available quote balance looks sufficient for the reserve plus one base buy. API keys are only read from the private env file and are not displayed.
+
 Example CRO env file:
 
 ```env

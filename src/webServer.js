@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { CryptoComClient } from "./cryptoComClient.js";
 import { loadDotEnv } from "./config.js";
 import { DEFAULT_INSTRUMENT_RULES } from "./instrumentRules.js";
-import { extractTickerPrice } from "./portfolio.js";
+import { extractBalances, extractTickerPrice } from "./portfolio.js";
 import { buildDashboardPayload } from "./webData.js";
 
 loadDotEnv(path.resolve(".env.web"));
@@ -211,13 +211,15 @@ async function handleServiceControl(req, res) {
 async function handleSettingsPreview(req, res) {
   const body = await readJsonBody(req);
   const result = settingsPlan(body);
+  const readiness = await liveTradingReadiness(result.pair, result.envPath, result.finalEnv, result.changes);
   return sendJson(res, 200, {
     ok: true,
     instrument: result.pair.instrument,
     envFile: result.pair.envFile,
     serviceName: result.pair.serviceName,
     changes: result.changes,
-    warnings: result.warnings
+    warnings: result.warnings,
+    readiness
   });
 }
 
@@ -436,9 +438,78 @@ function settingsPlan(body) {
   if (body.settings && Object.keys(submitted).some((key) => !EDITABLE_SETTING_KEYS.has(key))) {
     warnings.push("Some submitted fields were ignored because they are not editable from the web UI.");
   }
-  warnings.push(...settingsRiskWarnings(pair, { ...currentEnv, ...Object.fromEntries(changes.map((change) => [change.key, change.to])) }, changes));
+  const finalEnv = { ...currentEnv, ...Object.fromEntries(changes.map((change) => [change.key, change.to])) };
+  warnings.push(...settingsRiskWarnings(pair, finalEnv, changes));
 
-  return { pair, envPath, changes, warnings };
+  return { pair, envPath, changes, warnings, finalEnv };
+}
+
+async function liveTradingReadiness(pair, envPath, finalEnv, changes) {
+  const changed = new Set(changes.map((change) => change.key));
+  const willBeLive = String(finalEnv.DRY_RUN || "").toLowerCase() === "false"
+    && String(finalEnv.ENABLE_TRADING || "").toLowerCase() === "true";
+  if (!willBeLive || (!changed.has("DRY_RUN") && !changed.has("ENABLE_TRADING"))) return null;
+
+  const currentEnv = parseEnvFile(envPath);
+  const env = { ...currentEnv, ...finalEnv };
+  const client = new CryptoComClient({
+    apiKey: env.CCOM_API_KEY || "",
+    apiSecret: env.CCOM_API_SECRET || "",
+    baseUrl: cryptoComBaseUrl(env)
+  });
+  const warnings = [];
+  const batchQuantity = Number(env.BATCH_QUANTITY || 0);
+  const minQuoteBalance = Number(env.MIN_QUOTE_BALANCE || 0);
+  let lastPrice = Number(pair.lastPrice || 0);
+
+  try {
+    const ticker = await client.publicGet("public/get-tickers", { instrument_name: pair.instrument });
+    lastPrice = extractTickerPrice(ticker, pair.instrument);
+  } catch (error) {
+    warnings.push(`Last price could not be refreshed: ${error.message}`);
+  }
+
+  try {
+    const balanceResponse = await client.privatePost("private/user-balance", {});
+    const balances = extractBalances(balanceResponse);
+    const quote = balances.get(pair.quoteAsset) || { available: 0, total: 0 };
+    const base = balances.get(pair.baseAsset) || { available: 0, total: 0 };
+    const estimatedBatchCost = batchQuantity > 0 && lastPrice > 0 ? batchQuantity * lastPrice : 0;
+    const recommendedQuote = minQuoteBalance + estimatedBatchCost;
+    const enoughQuoteForBaseBuy = estimatedBatchCost > 0 ? quote.available >= recommendedQuote : null;
+    if (enoughQuoteForBaseBuy === false) {
+      warnings.push(`Available ${pair.quoteAsset} is below MIN_QUOTE_BALANCE plus one BATCH_QUANTITY buy.`);
+    }
+    return {
+      checkedAt: new Date().toISOString(),
+      mode: "live-trading-preview",
+      baseAsset: pair.baseAsset,
+      quoteAsset: pair.quoteAsset,
+      lastPrice,
+      batchQuantity,
+      estimatedBatchCost,
+      minQuoteBalance,
+      recommendedQuote,
+      quoteAvailable: quote.available,
+      quoteTotal: quote.total,
+      baseAvailable: base.available,
+      baseTotal: base.total,
+      enoughQuoteForBaseBuy,
+      warnings
+    };
+  } catch (error) {
+    return {
+      checkedAt: new Date().toISOString(),
+      mode: "live-trading-preview",
+      baseAsset: pair.baseAsset,
+      quoteAsset: pair.quoteAsset,
+      lastPrice,
+      batchQuantity,
+      minQuoteBalance,
+      error: `Could not load exchange balances: ${error.message}`,
+      warnings
+    };
+  }
 }
 
 function resolveEnvFile(envFile) {
@@ -734,8 +805,15 @@ function publicCryptoClient() {
   return new CryptoComClient({
     apiKey: "",
     apiSecret: "",
-    baseUrl: process.env.CCOM_BASE_URL || "https://api.crypto.com/exchange/v1"
+    baseUrl: cryptoComBaseUrl(process.env)
   });
+}
+
+function cryptoComBaseUrl(env) {
+  if (env.CCOM_BASE_URL) return env.CCOM_BASE_URL;
+  return env.CCOM_ENV === "uat"
+    ? "https://uat-api.3ona.co/exchange/v1"
+    : "https://api.crypto.com/exchange/v1";
 }
 
 function normalizeInstrumentRows(data) {

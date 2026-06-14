@@ -567,6 +567,7 @@ function settingsPreview(pair, preview) {
   return `
     <div class="settings-preview">
       <div class="mini-title">Diff before apply</div>
+      ${preview.readiness ? liveReadinessPanel(preview.readiness) : ""}
       ${preview.warnings?.length ? `
         <div class="risk-box">
           <strong>Skontroluj pred ulozenim</strong>
@@ -589,6 +590,53 @@ function settingsPreview(pair, preview) {
           <button class="btn" type="button" data-settings-cancel>Cancel</button>
         </div>
       ` : `<div class="empty compact">Ziadne zmeny na ulozenie.</div>`}
+    </div>
+  `;
+}
+
+function liveReadinessPanel(readiness) {
+  if (readiness.error) {
+    return `
+      <div class="risk-box">
+        <strong>Live trading balance check</strong>
+        <ul>
+          <li>${escapeHtml(readiness.error)}</li>
+          <li>Pred zapnutim live rezimu skontroluj API pristup a zostatok priamo na burze.</li>
+        </ul>
+      </div>
+    `;
+  }
+  const enough = readiness.enoughQuoteForBaseBuy;
+  const quote = readiness.quoteAsset || "USD";
+  const base = readiness.baseAsset || "";
+  return `
+    <div class="readiness-box ${enough === false ? "warn" : "ok"}">
+      <div class="rules-head">
+        <strong>Live trading balance check</strong>
+        <span class="sub">${escapeHtml(readiness.checkedAt ? shortDate(readiness.checkedAt) : "")}</span>
+      </div>
+      <div class="settings-list">
+        ${settingRow(`${quote} available`, money(readiness.quoteAvailable || 0, 2))}
+        ${settingRow(`${quote} total`, money(readiness.quoteTotal || 0, 2))}
+        ${settingRow(`${base} available`, `${formatAssetQty(readiness.baseAvailable || 0)} ${base}`)}
+        ${settingRow("BATCH_QUANTITY", `${formatAssetQty(readiness.batchQuantity || 0)} ${base}`)}
+        ${settingRow("Last price", readiness.lastPrice ? money(readiness.lastPrice, 8) : "-")}
+        ${settingRow("Est. one batch cost", money(readiness.estimatedBatchCost || 0, 2))}
+        ${settingRow("MIN_QUOTE_BALANCE", money(readiness.minQuoteBalance || 0, 2))}
+        ${settingRow("Recommended available", money(readiness.recommendedQuote || 0, 2))}
+      </div>
+      <div class="rules-ok">
+        <span class="dot ${enough === false ? "warn" : ""}"></span>
+        ${enough === false
+          ? `Zostatok ${escapeHtml(quote)} je nizsi ako rezerva plus jedna davka.`
+          : `Zostatok ${escapeHtml(quote)} vyzera dostatocny na rezervu plus jednu davku.`}
+      </div>
+      ${readiness.warnings?.length ? `
+        <div class="risk-box">
+          <strong>Poznamky</strong>
+          <ul>${readiness.warnings.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>
+        </div>
+      ` : ""}
     </div>
   `;
 }

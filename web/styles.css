@@ -592,6 +592,17 @@ td { font-size: 13px; }
   color: var(--text-2);
   font-size: 12px;
 }
+.readiness-box {
+  margin: 10px 0 12px;
+  border: 1px solid var(--green-line);
+  background: var(--green-bg);
+  border-radius: 7px;
+  padding: 12px;
+}
+.readiness-box.warn {
+  border-color: var(--amber-line);
+  background: var(--amber-bg);
+}
 .readonly-settings summary {
   cursor: pointer;
   color: var(--muted);
