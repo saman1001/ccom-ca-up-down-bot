@@ -180,4 +180,5 @@ Toto robit postupne a bezpecne: najprv read-only dashboard, potom az po kontrole
 - [x] Umoznit bezpecny restart sluzby po zmene nastaveni.
 - [x] Pridat service control tlacidla pre start, pause/stop a restart povolenych bot sluzieb.
 - [x] Pridat samostatny flow pre dry-run/live rezim cez `DRY_RUN` a `ENABLE_TRADING` s diffom, varovaniami, zalohou a restartom sluzby.
+- [x] Pridat bezpecnu vymenu API key/secret pre existujuci par cez web: nezobrazovat hodnoty, spravit `.env` zalohu, restartovat sluzbu a volitelne prepnut do dry-run.
 - [ ] Pridat lepsiu spravu pouzivatelov alebo dalsiu ochranu ako Cloudflare Access/VPN/Tailscale, ak bude web pouzivany castejsie alebo viac ludmi.

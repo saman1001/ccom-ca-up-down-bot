@@ -569,6 +569,8 @@ td { font-size: 13px; }
   line-height: 1.45;
 }
 .readonly-settings { margin-top: 16px; }
+.api-access { margin-top: 16px; }
+.credentials-form { margin-top: 12px; }
 .readonly-settings summary {
   cursor: pointer;
   color: var(--muted);

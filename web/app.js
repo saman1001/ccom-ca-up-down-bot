@@ -454,6 +454,7 @@ function settingsCard(pair) {
           </div>
         </form>
         ${preview ? settingsPreview(pair, preview) : ""}
+        ${apiAccessCard(pair)}
         <details class="readonly-settings">
           <summary>Co znamena oznacenie</summary>
           <div class="settings-list">
@@ -464,6 +465,31 @@ function settingsCard(pair) {
         </details>
       </div>
     </div>
+  `;
+}
+
+function apiAccessCard(pair) {
+  return `
+    <section class="settings-group api-access">
+      <div class="settings-group-head">
+        <h3>API access</h3>
+        <p>Vymena API key/secret pre tento par. Hodnoty sa nikdy nezobrazia naspat v UI.</p>
+      </div>
+      <div class="settings-list">
+        <div class="setting"><span>API key</span><span>${escapeHtml(pair.safeSettings.API_KEY_CONFIGURED || "missing")}</span></div>
+        <div class="setting"><span>API secret</span><span>${escapeHtml(pair.safeSettings.API_SECRET_CONFIGURED || "missing")}</span></div>
+      </div>
+      <form class="credentials-form" data-credentials-form="${pair.instrument}">
+        <div class="settings-edit-list">
+          ${newPairField("apiKey", "New API key", "", "Novy API key z Crypto.com pre tento par.", "text", "off")}
+          ${newPairField("apiSecret", "New API secret", "", "Novy API secret. Po ulozeni sa uz nezobrazi.", "password", "new-password")}
+        </div>
+        <div class="settings-actions">
+          <label class="setting-enable"><input type="checkbox" name="pauseTrading" checked> <span>Po vymene prepnut par do DRY_RUN=true / ENABLE_TRADING=false</span></label>
+          <button class="btn btn-danger" type="submit">Replace API keys & restart</button>
+        </div>
+      </form>
+    </section>
   `;
 }
 
@@ -1191,6 +1217,12 @@ function bindEvents() {
     event.preventDefault();
     await createPair(event.currentTarget);
   });
+  document.querySelectorAll("[data-credentials-form]").forEach((form) => {
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      await replaceCredentials(form);
+    });
+  });
   document.querySelector("[data-refresh]")?.addEventListener("click", init);
 }
 
@@ -1296,6 +1328,38 @@ async function createPair(form) {
     render();
   } catch (error) {
     state.pairCreateMessage = { level: "error", title: "Pair create failed", text: error.message };
+    render();
+  }
+}
+
+async function replaceCredentials(form) {
+  const instrument = form.dataset.credentialsForm;
+  const pair = pairByInstrument(instrument);
+  if (!pair) return;
+  const ok = window.confirm(`Replace API keys for ${pair.instrument.replace("_", " / ")}?\n\nA .env backup will be created and ${pair.serviceName} will be restarted.`);
+  if (!ok) return;
+
+  const values = Object.fromEntries(new FormData(form).entries());
+  state.settingsMessage = null;
+  try {
+    const result = await postJson("/api/credentials/replace", {
+      instrument,
+      apiKey: values.apiKey || "",
+      apiSecret: values.apiSecret || "",
+      pauseTrading: values.pauseTrading === "on"
+    });
+    state.settingsMessage = {
+      level: "info",
+      title: "API keys replaced",
+      text: `${result.instrument}: backup ${result.backupPath || "-"}, restart ${result.restarted ? "OK" : "not requested"}, ${result.tradingPaused ? "dry-run enabled" : "trading mode unchanged"}.`
+    };
+    form.reset();
+    await init();
+    state.view = "settings";
+    state.settingsPair = instrument;
+    render();
+  } catch (error) {
+    state.settingsMessage = { level: "error", title: "API key replace failed", text: error.message };
     render();
   }
 }

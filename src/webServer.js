@@ -140,6 +140,10 @@ async function handleRequest(req, res) {
     return handlePairCreate(req, res);
   }
 
+  if (req.method === "POST" && pathname === "/api/credentials/replace") {
+    return handleCredentialsReplace(req, res);
+  }
+
   if (req.method === "GET" && pathname === "/api/reports/download") {
     return handleReportDownload(url, res);
   }
@@ -267,6 +271,23 @@ async function handlePairCreate(req, res) {
     serviceStarted: result.serviceStarted,
     serviceActive: result.serviceActive,
     reportGenerated: result.reportGenerated,
+    warnings: result.warnings
+  });
+}
+
+async function handleCredentialsReplace(req, res) {
+  const body = await readJsonBody(req);
+  const result = replaceCredentials(body);
+  return sendJson(res, 200, {
+    ok: true,
+    instrument: result.pair.instrument,
+    envFile: result.pair.envFile,
+    serviceName: result.pair.serviceName,
+    backupPath: displayPath(result.backupPath),
+    apiKeyConfigured: true,
+    apiSecretConfigured: true,
+    tradingPaused: result.tradingPaused,
+    restarted: result.restarted,
     warnings: result.warnings
   });
 }
@@ -536,9 +557,7 @@ function createPair(body) {
   const [baseAsset, quoteAsset] = instrument.split("_");
   const apiKey = String(body.apiKey || "").trim();
   const apiSecret = String(body.apiSecret || "").trim();
-  if (!apiKey) throw httpError(400, "API key is required for a new pair.");
-  if (!apiSecret) throw httpError(400, "API secret is required for a new pair.");
-  if (/[\r\n]/.test(apiKey) || /[\r\n]/.test(apiSecret)) throw httpError(400, "API credentials must be single-line values.");
+  validateApiCredentials(apiKey, apiSecret);
 
   const existing = buildDashboardPayload().pairs.find((pair) => pair.instrument === instrument);
   if (existing) throw httpError(409, `${instrument} already exists.`);
@@ -637,6 +656,53 @@ function createPair(body) {
     reportGenerated,
     warnings
   };
+}
+
+function replaceCredentials(body) {
+  const instrument = String(body.instrument || "").trim();
+  const payload = buildDashboardPayload();
+  const pair = payload.pairs.find((item) => item.instrument === instrument);
+  if (!pair) throw httpError(404, "Pair not found");
+
+  const apiKey = String(body.apiKey || "").trim();
+  const apiSecret = String(body.apiSecret || "").trim();
+  validateApiCredentials(apiKey, apiSecret);
+
+  const envPath = resolveEnvFile(pair.envFile);
+  const currentEnv = parseEnvFile(envPath);
+  const pauseTrading = body.pauseTrading !== false;
+  const changes = [
+    { key: "CCOM_API_KEY", from: currentEnv.CCOM_API_KEY ? "[configured]" : "", to: apiKey },
+    { key: "CCOM_API_SECRET", from: currentEnv.CCOM_API_SECRET ? "[configured]" : "", to: apiSecret }
+  ];
+
+  if (pauseTrading) {
+    if (currentEnv.DRY_RUN !== "true") changes.push({ key: "DRY_RUN", from: currentEnv.DRY_RUN ?? "", to: "true" });
+    if (currentEnv.ENABLE_TRADING !== "false") changes.push({ key: "ENABLE_TRADING", from: currentEnv.ENABLE_TRADING ?? "", to: "false" });
+  }
+
+  const backupPath = backupEnvFile(envPath);
+  writeEnvFile(envPath, changes);
+  const restart = restartService(pair.serviceName);
+  if (!restart.ok) {
+    throw httpError(500, `API keys were saved, but service restart failed: ${restart.error}`);
+  }
+
+  return {
+    pair,
+    backupPath,
+    tradingPaused: pauseTrading,
+    restarted: true,
+    warnings: pauseTrading
+      ? ["API keys were replaced and the pair was moved to DRY_RUN=true / ENABLE_TRADING=false for verification."]
+      : ["API keys were replaced without changing trading mode. Confirm that the new key is valid before relying on live trading."]
+  };
+}
+
+function validateApiCredentials(apiKey, apiSecret) {
+  if (!apiKey) throw httpError(400, "API key is required.");
+  if (!apiSecret) throw httpError(400, "API secret is required.");
+  if (/[\r\n]/.test(apiKey) || /[\r\n]/.test(apiSecret)) throw httpError(400, "API credentials must be single-line values.");
 }
 
 function normalizeInstrument(value) {
