@@ -683,10 +683,11 @@ function formatEnvValue(value, secret) {
 function updateWebEnvFiles(envFile) {
   const webEnvPath = path.resolve(process.cwd(), ".env.web");
   const current = fs.existsSync(webEnvPath) ? parseEnvFile(webEnvPath) : {};
-  const existing = String(current.WEB_ENV_FILES || process.env.WEB_ENV_FILES || "")
+  const configured = String(current.WEB_ENV_FILES || process.env.WEB_ENV_FILES || "")
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
+  const existing = configured.length ? configured : discoverPrivateEnvFiles();
   if (!existing.includes(envFile)) existing.push(envFile);
   const value = existing.join(",");
   if (fs.existsSync(webEnvPath)) {
@@ -695,6 +696,14 @@ function updateWebEnvFiles(envFile) {
     fs.writeFileSync(webEnvPath, `WEB_ENV_FILES=${value}\n`, { mode: 0o600 });
   }
   process.env.WEB_ENV_FILES = value;
+}
+
+function discoverPrivateEnvFiles() {
+  return fs
+    .readdirSync(process.cwd())
+    .filter((name) => /^\.env\.[a-z0-9-]+$/i.test(name))
+    .filter((name) => name !== ".env.web" && !name.includes("backup"))
+    .sort();
 }
 
 function systemdUnitPath(serviceName) {
