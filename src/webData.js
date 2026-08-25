@@ -144,7 +144,9 @@ function buildPairPayload(config) {
     closedBatches: reportData.closedBatches.length,
     totalOpenQuantity: reportData.totalOpenQuantity || 0,
     realizedCash: reportData.realizedCash || 0,
-    realizedInclDust: reportData.realizedWithClosedDust || 0,
+    realizedPnl: reportData.realizedPnl || 0,
+    estimatedUnsoldDustValue: reportData.estimatedUnsoldDustValue || 0,
+    estimatedTotalPnl: reportData.estimatedTotalPnl || 0,
     unrealized: reportData.unrealized || 0,
     dustBankQuantity: Number(dustBank.quantity || 0),
     dustBankValue: reportData.dustBankValue || 0,
@@ -177,7 +179,9 @@ function buildTotals(pairs) {
   return {
     portfolioValue: pairs.reduce((sum, pair) => sum + Number(pair.portfolio?.totalQuoteValue || 0), 0),
     todayRealizedPnl: pairs.reduce((sum, pair) => sum + Number(pair.todayRealizedPnl || 0), 0),
-    realizedInclDust: pairs.reduce((sum, pair) => sum + Number(pair.realizedInclDust || 0), 0),
+    realizedPnl: pairs.reduce((sum, pair) => sum + Number(pair.realizedPnl || 0), 0),
+    estimatedUnsoldDustValue: pairs.reduce((sum, pair) => sum + Number(pair.estimatedUnsoldDustValue || 0), 0),
+    estimatedTotalPnl: pairs.reduce((sum, pair) => sum + Number(pair.estimatedTotalPnl || 0), 0),
     unrealized: pairs.reduce((sum, pair) => sum + Number(pair.unrealized || 0), 0),
     openBatches: pairs.reduce((sum, pair) => sum + Number(pair.openBatches || 0), 0),
     closedBatches: pairs.reduce((sum, pair) => sum + Number(pair.closedBatches || 0), 0),
@@ -216,8 +220,10 @@ function buildReportData({ config, batches, dustBank, snapshots, priceHistory, o
   const latest = snapshots.at(-1) || null;
   const lastPrice = Number(latest?.price || 0);
   const realizedCash = closedBatches.reduce((sum, batch) => sum + realizedPnl(batch), 0);
-  const closedBatchDustQuantity = closedBatches.reduce((sum, batch) => sum + Number(batch.dustQuantity || 0), 0);
-  const realizedWithClosedDust = realizedCash + closedBatchDustQuantity * lastPrice;
+  const soldDustStats = buildSoldDustStats(dustBank);
+  const realizedPnlIncludingSoldDust = realizedCash + soldDustStats.soldValue;
+  const estimatedUnsoldDustValue = Number(dustBank.quantity || 0) * lastPrice;
+  const estimatedTotalPnl = realizedPnlIncludingSoldDust + estimatedUnsoldDustValue;
   const unrealized = openBatches.reduce((sum, batch) => sum + Number(batch.quantity || 0) * (lastPrice - Number(batch.averagePrice || 0)), 0);
   const totalOpenQuantity = openBatches.reduce((sum, batch) => sum + Number(batch.quantity || 0), 0);
   const totalOpenCost = openBatches.reduce((sum, batch) => sum + Number(batch.quantity || 0) * Number(batch.averagePrice || 0), 0);
@@ -242,12 +248,14 @@ function buildReportData({ config, batches, dustBank, snapshots, priceHistory, o
     annualizedStats,
     dailySummaries: buildDailySummaries(closedBatches, dustBank),
     realizedCash,
-    realizedWithClosedDust,
+    realizedPnl: realizedPnlIncludingSoldDust,
+    estimatedUnsoldDustValue,
+    estimatedTotalPnl,
     unrealized,
     totalOpenQuantity,
     avgOpenPrice,
     nextSellPrice,
-    dustBankValue: Number(dustBank.quantity || 0) * lastPrice
+    dustBankValue: estimatedUnsoldDustValue
   };
 }
 
@@ -270,9 +278,10 @@ function buildClosedBatchStats(closedBatches, lastPrice) {
       id: batch.id,
       closedAt: batch.closedAt || "",
       buyCost,
-      realizedPnl: realized,
-      realizedPnlInclDust: realized + dustQuantity * lastPrice,
-      realizedPctInclDust: buyCost > 0 ? ((realized + dustQuantity * lastPrice) / buyCost) * 100 : 0,
+    realizedPnl: realized,
+    estimatedDustValue: dustQuantity * lastPrice,
+    estimatedTotalPnl: realized + dustQuantity * lastPrice,
+    estimatedTotalPct: buyCost > 0 ? ((realized + dustQuantity * lastPrice) / buyCost) * 100 : 0,
       annualizedPct: ratePct(realized, capitalYears(buyCost, holdingMs)),
       dustQuantity,
       holdingMs,
@@ -653,8 +662,9 @@ function closedBatchRow(batch) {
     id: batch.id,
     closedAt: batch.closedAt || "",
     realizedPnl: batch.realizedPnl || 0,
-    realizedPnlInclDust: batch.realizedPnlInclDust || 0,
-    realizedPctInclDust: batch.realizedPctInclDust || 0,
+    estimatedDustValue: batch.estimatedDustValue || 0,
+    estimatedTotalPnl: batch.estimatedTotalPnl || 0,
+    estimatedTotalPct: batch.estimatedTotalPct || 0,
     annualizedPct: batch.annualizedPct || null,
     dustQuantity: batch.dustQuantity || 0,
     holdingHours: batch.holdingHours,

@@ -320,7 +320,8 @@ function overviewPage() {
     <div class="kpi-row">
       ${kpi("Total portfolio", money(totals.portfolioValue), "Podla poslednych snapshotov")}
       ${kpi("Today P/L", signedMoney(totals.todayRealizedPnl), "realized dnes", totals.todayRealizedPnl)}
-      ${kpi("Realized incl. dust", signedMoney(totals.realizedInclDust), `${totals.closedBatches} uzavretych davok`, totals.realizedInclDust)}
+      ${kpi("Realized P/L", signedMoney(totals.realizedPnl), "sold dust included; unsold dust excluded", totals.realizedPnl)}
+      ${kpi("Estimated total P/L", signedMoney(totals.estimatedTotalPnl), `includes ${money(totals.estimatedUnsoldDustValue)} unsold dust estimate`, totals.estimatedTotalPnl)}
       ${kpi("Unrealized P/L", signedMoney(totals.unrealized), `${totals.openBatches} otvorenych davok`, totals.unrealized)}
       ${kpi("P/L p.a. incl. dust", pct(totals.annualizedStats?.annualizedInclSoldDustPct), "sold dust included", totals.annualizedStats?.annualizedInclSoldDustPct)}
     </div>
@@ -351,7 +352,8 @@ function pairCard(pair) {
         ${miniChart(pair.recentSnapshots)}
       </div>
       <div class="pair-grid">
-        ${metric("Realized", signedMoney(pair.realizedInclDust), pair.realizedInclDust)}
+        ${metric("Realized", signedMoney(pair.realizedPnl), pair.realizedPnl)}
+        ${metric("Estimated total", signedMoney(pair.estimatedTotalPnl), pair.estimatedTotalPnl)}
         ${metric("Unrealized", signedMoney(pair.unrealized), pair.unrealized)}
         ${metric("Open", pair.openBatches)}
         ${metric("Closed", pair.closedBatches)}
@@ -372,7 +374,8 @@ function pairDetail(pair) {
     ${pair.alerts.length ? pair.alerts.map((alert) => banner(alert.level, alert.title, alert.text)).join("") : banner("info", "Bez vaznych upozorneni", "Posledne dostupne data pre tento par su nacitane.")}
     <div class="kpi-row pair-hero">
       ${kpi(`${pair.instrument} last price`, money(pair.lastPrice, priceDigits(pair)), `Next sell at ${pair.nextSellPrice ? money(pair.nextSellPrice, priceDigits(pair)) : "-"} · Avg open ${money(pair.avgOpenPrice, priceDigits(pair))}`)}
-      ${kpi("Realized incl. dust", signedMoney(pair.realizedInclDust), `Cash ${signedMoney(pair.realizedCash)}`, pair.realizedInclDust)}
+      ${kpi("Realized P/L", signedMoney(pair.realizedPnl), `Batch cash ${signedMoney(pair.realizedCash)} · sold dust included`, pair.realizedPnl)}
+      ${kpi("Estimated total P/L", signedMoney(pair.estimatedTotalPnl), `Unsold dust estimate ${money(pair.estimatedUnsoldDustValue)}`, pair.estimatedTotalPnl)}
       ${kpi("P/L p.a. incl. dust", pct(pair.annualizedStats?.annualizedInclSoldDustPct), "sold dust included", pair.annualizedStats?.annualizedInclSoldDustPct)}
       ${kpi("Unrealized P/L", signedMoney(pair.unrealized), `${pair.openBatches} otvorenych davok`, pair.unrealized)}
       ${kpi("Quote balance", money(pair.portfolio?.quoteTotal || 0), pair.quoteAsset)}
@@ -1068,13 +1071,13 @@ function openBatchesTable(rows, pair) {
 function closedBatchesTable(rows) {
   if (!rows.length) return `<div class="empty">Ziadne uzavrete davky.</div>`;
   return `<div class="table-wrap"><table>
-    <thead><tr><th>ID</th><th>Closed</th><th class="right">P/L incl. dust</th><th class="right">%</th><th class="right">P/L p.a.</th><th class="right">Hold</th></tr></thead>
+    <thead><tr><th>ID</th><th>Closed</th><th class="right">Cash P/L</th><th class="right">Dust estimate</th><th class="right">Estimated total</th><th class="right">Hold</th></tr></thead>
     <tbody>${rows.map((row) => `<tr>
       <td class="mono">${shortId(row.id)}</td>
       <td class="mono">${shortDate(row.closedAt)}</td>
-      <td class="right num ${tone(row.realizedPnlInclDust)}">${signedMoney(row.realizedPnlInclDust)}</td>
-      <td class="right num ${tone(row.realizedPctInclDust)}">${signedPct(row.realizedPctInclDust)}</td>
-      <td class="right num ${tone(row.annualizedPct)}">${pct(row.annualizedPct)}</td>
+      <td class="right num ${tone(row.realizedPnl)}">${signedMoney(row.realizedPnl)}</td>
+      <td class="right num">${money(row.estimatedDustValue, 4)}</td>
+      <td class="right num ${tone(row.estimatedTotalPnl)}">${signedMoney(row.estimatedTotalPnl)} <span class="muted">(${signedPct(row.estimatedTotalPct)})</span></td>
       <td class="right num">${row.holdingHours === null ? "-" : `${fmt(row.holdingHours / 24, 1)}d`}</td>
     </tr>`).join("")}</tbody>
   </table></div>`;
@@ -1143,7 +1146,8 @@ function dustCard(pair) {
       <div class="card-head"><h3>Dust bank</h3><span class="sub">${pair.baseAsset}</span></div>
       <div class="card-body">
         ${metric(`Dust ${pair.baseAsset}`, fmt(pair.dustBankQuantity, pair.baseAsset === "BTC" ? 8 : 4))}
-        ${metric("Dust value", money(pair.dustBankValue, 4))}
+        ${metric("Estimated dust value", money(pair.estimatedUnsoldDustValue, 4))}
+        ${metric("Valuation", "Market estimate · not realized")}
         ${metric("Data source", pair.dataSource === "sqlite" ? "SQLite" : "Logs")}
         ${metric("Log dir", escapeHtml(pair.logDir))}
       </div>

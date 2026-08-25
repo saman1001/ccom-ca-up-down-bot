@@ -434,6 +434,13 @@ Generated files go to `reports/`:
 
 Reports include open batches, closed batches, recent orders, price chart with buy/sell markers, dust bank, daily summary, fee rows when available, maker order statistics, realized/unrealized P/L, and weighted annualized P/L including sold dust.
 
+P/L labels deliberately distinguish final and estimated values:
+
+- `Batch cash P/L` contains proceeds from closed batch sells after recorded fees, but excludes dust proceeds.
+- `Realized P/L` adds proceeds from dust that has actually been sold; unsold dust is excluded.
+- `Estimated unsold dust value` marks remaining dust to the latest market price and is not realized profit.
+- `Estimated total P/L` is realized P/L plus the current estimated value of unsold dust.
+
 Generated reports can contain private balances and trading history. Do not commit them to the public repository.
 
 ## Slovak Tax And Accounting Export

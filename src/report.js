@@ -56,11 +56,8 @@ function buildReportData({ config, batches, dustBank, snapshots, orderEvents = [
   const closedBatches = batches.filter((batch) => batch.status === "CLOSED");
   const latest = snapshots.at(-1) || null;
   const lastPrice = latest?.price ?? 0;
-  const closedBatchDustQuantity = closedBatches.reduce((sum, batch) => sum + Number(batch.dustQuantity || 0), 0);
-  const closedBatchDustValue = closedBatchDustQuantity * lastPrice;
   const dustBankValue = (dustBank.quantity || 0) * lastPrice;
   const realizedCash = closedBatches.reduce((sum, batch) => sum + realizedPnl(batch), 0);
-  const realizedWithClosedDust = realizedCash + closedBatchDustValue;
   const unrealized = openBatches.reduce((sum, batch) => {
     return sum + batch.quantity * (lastPrice - batch.averagePrice);
   }, 0);
@@ -75,11 +72,13 @@ function buildReportData({ config, batches, dustBank, snapshots, orderEvents = [
   const feeStats = buildFeeStats({ batches, orders, dustBank });
   const feePeriodStats = buildFeePeriodStats({ batches, orders, dustBank });
   const annualizedStats = buildAnnualizedStats({ closedStats, dustBank });
+  const realizedPnlIncludingSoldDust = realizedCash + annualizedStats.soldDustValue;
+  const estimatedTotalPnl = realizedPnlIncludingSoldDust + dustBankValue;
   const recentSnapshots = snapshots.slice(-240);
   const recentOrders = orders.slice(-50).reverse();
   const rankedClosedBatches = closedStats
     .slice()
-    .sort((a, b) => b.realizedPnlInclDust - a.realizedPnlInclDust);
+    .sort((a, b) => b.estimatedTotalPnl - a.estimatedTotalPnl);
 
   return {
     config,
@@ -94,9 +93,9 @@ function buildReportData({ config, batches, dustBank, snapshots, orderEvents = [
     latest,
     lastPrice,
     realizedCash,
-    realizedWithClosedDust,
-    closedBatchDustQuantity,
-    closedBatchDustValue,
+    realizedPnl: realizedPnlIncludingSoldDust,
+    estimatedUnsoldDustValue: dustBankValue,
+    estimatedTotalPnl,
     dustBankValue,
     unrealized,
     totalOpenQuantity,
@@ -130,7 +129,7 @@ function buildClosedBatchStats(closedBatches, lastPrice) {
     const firstBuyAt = firstDate((batch.buys || []).map((buy) => buy.at).concat(batch.createdAt));
     const lastSellAt = lastDate((batch.sells || []).map((sell) => sell.at).concat(batch.closedAt));
     const realized = sellValue - buyCost;
-    const realizedInclDust = realized + dustValue;
+    const estimatedTotalPnl = realized + dustValue;
     const holdingMs = firstBuyAt && lastSellAt ? lastSellAt.getTime() - firstBuyAt.getTime() : null;
     return {
       id: batch.id,
@@ -139,9 +138,9 @@ function buildClosedBatchStats(closedBatches, lastPrice) {
       buyCost,
       sellValue,
       realizedPnl: realized,
-      realizedPnlInclDust: realizedInclDust,
+      estimatedTotalPnl,
       realizedPct: buyCost > 0 ? (realized / buyCost) * 100 : 0,
-      realizedPctInclDust: buyCost > 0 ? (realizedInclDust / buyCost) * 100 : 0,
+      estimatedTotalPct: buyCost > 0 ? (estimatedTotalPnl / buyCost) * 100 : 0,
       dustQuantity,
       dustValue,
       createdAt: batch.createdAt || "",
@@ -706,8 +705,9 @@ function renderDashboard(data) {
     dustBank,
     lastPrice,
     realizedCash,
-    realizedWithClosedDust,
-    dustBankValue,
+    realizedPnl,
+    estimatedUnsoldDustValue,
+    estimatedTotalPnl,
     unrealized,
     totalOpenQuantity,
     avgOpenPrice,
@@ -802,9 +802,10 @@ function renderDashboard(data) {
       ${metric(`${config.quoteAsset} Balance`, latest ? money(latest.portfolio?.quoteTotal || 0) : "-")}
       ${metric(`${config.baseAsset} Balance`, latest ? fmt(latest.portfolio?.baseTotal || 0, 4) : "-")}
       ${metric("Dust Bank", fmt(dustBank.quantity || 0, 8))}
-      ${metric("Dust Value", money(dustBankValue))}
-      ${metric("Realized Cash P/L", money(realizedCash), realizedCash)}
-      ${metric("Realized Incl. Dust", money(realizedWithClosedDust), realizedWithClosedDust)}
+      ${metric("Estimated Unsold Dust Value", money(estimatedUnsoldDustValue))}
+      ${metric("Batch Cash P/L", money(realizedCash), realizedCash)}
+      ${metric("Realized P/L", money(realizedPnl), realizedPnl)}
+      ${metric("Estimated Total P/L", money(estimatedTotalPnl), estimatedTotalPnl)}
       ${metric("Unrealized P/L", money(unrealized), unrealized)}
       ${metric("Avg Holding", avgHoldingHours === null ? "-" : duration(avgHoldingHours * 36e5))}
       ${metric("P/L p.a.", pct(annualizedStats.batchAnnualizedPct), annualizedStats.batchAnnualizedPct)}
@@ -1131,7 +1132,7 @@ function feePeriodTable(rows) {
 
 function renderBatchesCsv(data) {
   return csv([
-    ["id", "status", "quantity", "average_price", "realized_pnl", "realized_pnl_incl_dust", "realized_pct", "realized_pct_incl_dust", "annualized_pct", "dust_quantity", "dust_value", "created_at", "closed_at", "holding_hours", "buys", "sells"],
+    ["id", "status", "quantity", "average_price", "realized_cash_pnl", "estimated_total_pnl", "realized_pct", "estimated_total_pct", "annualized_pct", "dust_quantity", "estimated_dust_value", "created_at", "closed_at", "holding_hours", "buys", "sells"],
     ...data.batches.map((batch) => {
       const closed = data.closedStats.find((item) => item.id === batch.id);
       return [
@@ -1140,9 +1141,9 @@ function renderBatchesCsv(data) {
         batch.quantity,
         batch.averagePrice,
         closed?.realizedPnl ?? "",
-        closed?.realizedPnlInclDust ?? "",
+        closed?.estimatedTotalPnl ?? "",
         closed?.realizedPct ?? "",
-        closed?.realizedPctInclDust ?? "",
+        closed?.estimatedTotalPct ?? "",
         closed?.annualizedPct ?? "",
         batch.dustQuantity ?? "",
         closed?.dustValue ?? "",
@@ -1263,11 +1264,11 @@ function displayPath(filePath) {
 }
 
 function closedBatchTable(rows) {
-  return table(["ID", "P/L Incl. Dust", "Cash P/L", "P/L % Incl. Dust", "Dust Value", "Holding", "Closed"], rows.map((batch) => [
+  return table(["ID", "Estimated Total P/L", "Cash P/L", "Estimated Total %", "Estimated Dust Value", "Holding", "Closed"], rows.map((batch) => [
     batch.id,
-    signedMoney(batch.realizedPnlInclDust),
+    signedMoney(batch.estimatedTotalPnl),
     signedMoney(batch.realizedPnl),
-    `${fmt(batch.realizedPctInclDust, 2)}%`,
+    `${fmt(batch.estimatedTotalPct, 2)}%`,
     money(batch.dustValue),
     batch.holdingMs === null ? "-" : duration(batch.holdingMs),
     batch.closedAt || "-"
