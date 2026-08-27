@@ -210,6 +210,15 @@ button, input { font: inherit; }
   flex-wrap: wrap;
   justify-content: flex-end;
 }
+.performance-tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.performance-tools label { display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: 12px; }
+.performance-tools input { border: 1px solid var(--line); border-radius: 7px; background: var(--panel); color: var(--text); padding: 5px 8px; }
+.performance-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.performance-grid .kpi { box-shadow: none; }
+.cash-flow-section { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line); }
+.cash-flow-form { display: grid; grid-template-columns: auto 1.25fr .65fr 1fr 1fr 1.4fr auto; gap: 8px; margin: 10px 0 14px; }
+.cash-flow-form input, .cash-flow-form select { min-width: 0; border: 1px solid var(--line); border-radius: 7px; background: var(--panel); color: var(--text); padding: 6px 8px; }
+.cash-flow-table .btn.compact { padding: 3px 7px; font-size: 11px; }
 .chart-legend {
   display: flex;
   align-items: center;
@@ -689,6 +698,8 @@ td { font-size: 13px; }
   }
   .mobile-bottom-nav button.active { color: var(--text); font-weight: 600; }
   .kpi-row, .grid-2, .grid-3 { grid-template-columns: 1fr; }
+  .performance-grid { grid-template-columns: 1fr; }
+  .cash-flow-form { grid-template-columns: 1fr 1fr; }
   .pair-grid, .settings-list, .settings-edit-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .health-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .pair-hero .kpi:first-child { order: -2; }

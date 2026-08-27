@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { openSqlite, sqlitePath } from "./sqliteStore.js";
+import { openSqlite, readCashFlowsSqlite, sqlitePath } from "./sqliteStore.js";
 
 const DEFAULT_DUST_BANK = { quantity: 0, entries: [], sells: [] };
 
@@ -43,7 +43,8 @@ export function readBotDataSourceSqlite(config) {
       dustBank: readStateFromDb(db, "dust_bank", DEFAULT_DUST_BANK),
       snapshots,
       priceHistory,
-      orderEvents
+      orderEvents,
+      cashFlows: readCashFlowsSqlite(config.logDir)
     };
   } catch (error) {
     if (normalizeMode(process.env.BOT_DATA_SOURCE || "") === "sqlite") {
@@ -61,7 +62,8 @@ export function readBotDataSourceLogs(config, source = "logs") {
     dustBank: readJson(path.join(config.logDir, "dust-bank.json"), DEFAULT_DUST_BANK),
     snapshots: readJsonl(path.join(config.logDir, "snapshots.jsonl")),
     priceHistory: readPriceHistoryCsv(path.join(config.logDir, "price-history.csv")),
-    orderEvents: readJsonl(path.join(config.logDir, "orders.jsonl"))
+    orderEvents: readJsonl(path.join(config.logDir, "orders.jsonl")),
+    cashFlows: []
   };
 }
 
@@ -73,7 +75,8 @@ function emptySqliteSource(config, source) {
     dustBank: DEFAULT_DUST_BANK,
     snapshots: [],
     priceHistory: [],
-    orderEvents: []
+    orderEvents: [],
+    cashFlows: []
   };
 }
 

@@ -17,6 +17,7 @@ import {
   loadOrderLedger
 } from "./orderLedger.js";
 import { appendPriceHistory } from "./priceHistory.js";
+import { syncCashFlows } from "./cashFlows.js";
 import {
   notifyDailyReportIfNeeded,
   notifyLowQuoteBalanceIfNeeded,
@@ -71,6 +72,7 @@ async function runOnce() {
     price,
     quoteAsset: config.quoteAsset
   });
+  await syncCashFlowsSafely(client, config);
   await notifyLowQuoteBalanceIfNeeded(config, portfolio);
 
   if (config.strategy === "batches") {
@@ -108,6 +110,15 @@ async function runOnce() {
   await notifyDailyReportIfNeeded(config, result);
   await recordBotSuccess(config);
   console.log(JSON.stringify(result, null, 2));
+}
+
+async function syncCashFlowsSafely(client, config) {
+  try {
+    return await syncCashFlows(client, config);
+  } catch (error) {
+    console.error(`[${new Date().toISOString()}] cash-flow sync failed: ${error.message}`);
+    return { imported: 0, error: error.message };
+  }
 }
 
 async function recoverMakerOrdersOnce() {

@@ -6,6 +6,7 @@ const state = {
   batchTab: "open",
   chartRange: "7d",
   dailyRange: "7d",
+  performanceStartDates: {},
   settingsPair: "BTC_USD",
   settingsPreview: null,
   settingsMessage: null,
@@ -159,7 +160,7 @@ async function init() {
     }
     state.data = await response.json();
     state.reports = await fetchReports();
-    state.pair = state.data.pairs[0]?.instrument || "BTC_USD";
+    state.pair = pairByInstrument(state.pair)?.instrument || state.data.pairs[0]?.instrument || "BTC_USD";
     state.settingsPair = pairByInstrument(state.settingsPair)?.instrument || state.pair;
     render();
   } catch (error) {
@@ -393,6 +394,8 @@ function pairDetail(pair) {
       <div class="card-body">${priceChart(pair)}</div>
     </div>
 
+    ${performanceComparisonCard(pair)}
+
     <div class="grid-2">
       <div class="card">
         <div class="card-head">
@@ -417,6 +420,126 @@ function pairDetail(pair) {
       ${dustCard(pair)}
     </div>
   `;
+}
+
+function performanceComparisonCard(pair) {
+  const history = pair.performanceHistory || [];
+  if (history.length < 2) {
+    return `<div class="card"><div class="card-head"><h2>Strategy vs Buy & Hold</h2></div><div class="card-body"><div class="empty">Na porovnanie zatial nie su aspon dva historicke snapshoty portfolia.</div></div></div>`;
+  }
+
+  const firstAvailable = history[0].at.slice(0, 10);
+  const lastAvailable = history.at(-1).at.slice(0, 10);
+  const selectedDate = state.performanceStartDates[pair.instrument] || firstAvailable;
+  const selectedMs = new Date(`${selectedDate}T00:00:00Z`).getTime();
+  const start = history.find((row) => new Date(row.at).getTime() >= selectedMs) || null;
+  const end = history.at(-1);
+  const valid = start && start !== end && start.price > 0 && start.portfolioValue > 0;
+  const periodFlows = valid ? cashFlowsInPeriod(pair.cashFlows || [], start.at, end.at) : [];
+  const deposits = periodFlows.filter((flow) => flow.direction === "DEPOSIT").reduce((sum, flow) => sum + flow.quoteValue, 0);
+  const withdrawals = periodFlows.filter((flow) => flow.direction === "WITHDRAWAL").reduce((sum, flow) => sum + flow.quoteValue, 0);
+  const comparison = valid ? cashFlowAdjustedComparison({ history, start, end, flows: periodFlows }) : null;
+  const strategyPct = comparison?.strategyPct ?? null;
+  const holdPct = comparison?.holdPct ?? null;
+  const differencePct = valid ? strategyPct - holdPct : null;
+  const periodLabel = valid ? `${shortDate(start.at)} – ${shortDate(end.at)}` : "Zvol skorší dátum";
+
+  return `<div class="card performance-card">
+    <div class="card-head">
+      <h2>Strategy vs Buy & Hold</h2><span class="sub">${periodLabel}</span>
+      <div class="head-right performance-tools">
+        <label>Od <input type="date" data-performance-start="${pair.instrument}" value="${escapeHtml(selectedDate)}" min="${firstAvailable}" max="${lastAvailable}"></label>
+        <button class="btn" type="button" data-performance-reset="${pair.instrument}">Od začiatku</button>
+      </div>
+    </div>
+    <div class="card-body">
+      ${valid ? `<div class="performance-grid">
+        ${kpi("Stratégia", signedPct(strategyPct), `${money(start.portfolioValue)} → ${money(end.portfolioValue)}`, strategyPct)}
+        ${kpi("Buy & Hold", signedPct(holdPct), `${money(start.price, priceDigits(pair))} → ${money(end.price, priceDigits(pair))}`, holdPct)}
+        ${kpi("Rozdiel", `${differencePct >= 0 ? "+" : ""}${fmt(differencePct, 2)} p. b.`, differencePct >= 0 ? "Stratégia prekonala držanie" : "Držanie bolo výkonnejšie", differencePct)}
+        ${kpi("Vklady", money(deposits), `${periodFlows.filter((flow) => flow.direction === "DEPOSIT").length} pohybov`)}
+        ${kpi("Výbery", money(withdrawals), `${periodFlows.filter((flow) => flow.direction === "WITHDRAWAL").length} pohybov`)}
+        ${kpi("Čistý cash flow", signedMoney(deposits - withdrawals), "vklady mínus výbery", deposits - withdrawals)}
+      </div>` : `<div class="empty">Pre zvolený dátum nie je dostatočne dlhé obdobie na porovnanie.</div>`}
+      <div class="chart-note">Výnos je očistený o vklady a výbery metódou Modified Dietz. Buy & Hold dostáva rovnaké cash flow v rovnakých časoch.</div>
+      ${cashFlowEditor(pair, periodFlows)}
+    </div>
+  </div>`;
+}
+
+function cashFlowAdjustedComparison({ history, start, end, flows }) {
+  const startMs = new Date(start.at).getTime();
+  const endMs = new Date(end.at).getTime();
+  const duration = endMs - startMs;
+  let netFlow = 0;
+  let weightedFlow = 0;
+  let holdUnits = start.portfolioValue / start.price;
+  for (const flow of flows) {
+    const signedFlow = flow.direction === "DEPOSIT" ? flow.quoteValue : -flow.quoteValue;
+    const flowMs = new Date(flow.at).getTime();
+    const weight = Math.max(0, Math.min(1, (endMs - flowMs) / duration));
+    netFlow += signedFlow;
+    weightedFlow += signedFlow * weight;
+    const price = nearestPerformancePoint(history, flowMs)?.price;
+    if (price > 0) holdUnits += signedFlow / price;
+  }
+  const denominator = start.portfolioValue + weightedFlow;
+  if (!(denominator > 0)) return { strategyPct: null, holdPct: null };
+  const strategyProfit = end.portfolioValue - start.portfolioValue - netFlow;
+  const holdEndValue = holdUnits * end.price;
+  const holdProfit = holdEndValue - start.portfolioValue - netFlow;
+  return {
+    strategyPct: (strategyProfit / denominator) * 100,
+    holdPct: (holdProfit / denominator) * 100
+  };
+}
+
+function cashFlowsInPeriod(flows, startAt, endAt) {
+  const startMs = new Date(startAt).getTime();
+  const endMs = new Date(endAt).getTime();
+  return flows
+    .map((flow) => ({ ...flow, quoteValue: Number(flow.quoteValue) }))
+    .filter((flow) => Number.isFinite(flow.quoteValue) && flow.quoteValue > 0)
+    .filter((flow) => {
+      const at = new Date(flow.at).getTime();
+      return Number.isFinite(at) && at > startMs && at <= endMs;
+    })
+    .sort((left, right) => left.at.localeCompare(right.at));
+}
+
+function nearestPerformancePoint(history, targetMs) {
+  return history.reduce((best, point) => {
+    if (!best) return point;
+    return Math.abs(new Date(point.at).getTime() - targetMs) < Math.abs(new Date(best.at).getTime() - targetMs) ? point : best;
+  }, null);
+}
+
+function cashFlowEditor(pair, flows) {
+  return `<div class="cash-flow-section">
+    <div class="mini-title">Vklady a výbery v období</div>
+    <form class="cash-flow-form" data-cash-flow-form="${pair.instrument}">
+      <select name="direction" aria-label="Typ pohybu"><option value="DEPOSIT">Vklad</option><option value="WITHDRAWAL">Výber</option></select>
+      <input name="at" type="datetime-local" value="${localDateTimeValue(new Date())}" max="${localDateTimeValue(new Date())}" required aria-label="Dátum a čas">
+      <input name="asset" value="${escapeHtml(pair.quoteAsset)}" required aria-label="Mena" placeholder="USD">
+      <input name="amount" type="number" min="0" step="any" required aria-label="Množstvo" placeholder="Množstvo">
+      <input name="quoteValue" type="number" min="0" step="any" required aria-label="Hodnota v ${pair.quoteAsset}" placeholder="Hodnota v ${pair.quoteAsset}">
+      <input name="note" maxlength="200" aria-label="Poznámka" placeholder="Poznámka (voliteľná)">
+      <button class="btn" type="submit">Pridať</button>
+    </form>
+    <div class="table-wrap"><table class="cash-flow-table">
+      <thead><tr><th>Dátum</th><th>Typ</th><th>Mena</th><th class="right">Množstvo</th><th class="right">Hodnota</th><th>Zdroj</th><th></th></tr></thead>
+      <tbody>${flows.length ? [...flows].reverse().map((flow) => `<tr>
+        <td class="mono">${shortDate(flow.at)}</td><td>${flow.direction === "DEPOSIT" ? "Vklad" : "Výber"}</td><td>${escapeHtml(flow.asset)}</td>
+        <td class="right mono">${fmt(flow.amount, 8)}</td><td class="right mono">${money(flow.quoteValue)}</td><td>${flow.source === "manual" ? "manuálne" : "Crypto.com"}</td>
+        <td class="right">${flow.source === "manual" ? `<button type="button" class="btn btn-danger compact" data-cash-flow-delete="${flow.id}" data-cash-flow-pair="${pair.instrument}">Odstrániť</button>` : ""}</td>
+      </tr>`).join("") : `<tr><td colspan="7" class="empty">V tomto období nie sú evidované vklady ani výbery.</td></tr>`}</tbody>
+    </table></div>
+  </div>`;
+}
+
+function localDateTimeValue(date) {
+  const offsetMs = date.getTimezoneOffset() * 60000;
+  return new Date(date.getTime() - offsetMs).toISOString().slice(0, 16);
 }
 
 function settingsPage() {
@@ -1300,6 +1423,48 @@ function bindEvents() {
     button.addEventListener("click", () => {
       state.chartRange = button.dataset.chartRange;
       render();
+    });
+  });
+  document.querySelectorAll("[data-performance-start]").forEach((input) => {
+    input.addEventListener("change", () => {
+      state.performanceStartDates[input.dataset.performanceStart] = input.value;
+      render();
+    });
+  });
+  document.querySelectorAll("[data-performance-reset]").forEach((button) => {
+    button.addEventListener("click", () => {
+      delete state.performanceStartDates[button.dataset.performanceReset];
+      render();
+    });
+  });
+  document.querySelectorAll("[data-cash-flow-form]").forEach((form) => {
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const values = Object.fromEntries(new FormData(form).entries());
+      try {
+        await postJson("/api/cash-flows", {
+          instrument: form.dataset.cashFlowForm,
+          ...values,
+          at: new Date(values.at).toISOString()
+        });
+        await init();
+      } catch (error) {
+        window.alert(`Pohyb sa nepodarilo uložiť: ${error.message}`);
+      }
+    });
+  });
+  document.querySelectorAll("[data-cash-flow-delete]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      if (!window.confirm("Odstrániť tento manuálny vklad alebo výber?")) return;
+      try {
+        await postJson("/api/cash-flows/delete", {
+          instrument: button.dataset.cashFlowPair,
+          id: Number(button.dataset.cashFlowDelete)
+        });
+        await init();
+      } catch (error) {
+        window.alert(`Pohyb sa nepodarilo odstrániť: ${error.message}`);
+      }
     });
   });
   document.querySelectorAll("[data-daily-range]").forEach((button) => {

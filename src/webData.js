@@ -110,6 +110,7 @@ function buildPairPayload(config) {
   const snapshots = source.snapshots;
   const orderEvents = source.orderEvents;
   const reportData = buildReportData({ config, batches, dustBank, snapshots, priceHistory: source.priceHistory || [], orderEvents });
+  const performanceHistory = buildPerformanceHistory(snapshots);
   const latest = reportData.latest;
   const serviceName = serviceNameForInstrument(config.instrument);
   const serviceActive = systemctlIsActive(serviceName);
@@ -157,6 +158,8 @@ function buildPairPayload(config) {
     avgHoldingDays: averageHoldingDays(reportData.closedStats),
     todayRealizedPnl: todayRealizedPnl(reportData.dailySummaries),
     recentSnapshots: buildChartPoints(reportData.recentSnapshots, batches),
+    performanceHistory,
+    cashFlows: buildCashFlowRows(source.cashFlows || [], performanceHistory, config),
     openBatchRows: reportData.openBatches.slice(0, 50).map((batch) => openBatchRow(batch, reportData.lastPrice, config)),
     closedBatchRows: reportData.closedStats.slice(-50).reverse().map(closedBatchRow),
     recentOrders: reportData.recentOrders.slice(0, 25).map(orderRow),
@@ -715,6 +718,51 @@ function buildChartPoints(snapshots, batches) {
   }
 
   return points;
+}
+
+function buildPerformanceHistory(snapshots) {
+  const byHour = new Map();
+  for (const snapshot of snapshots || []) {
+    const at = new Date(snapshot.at || "");
+    const price = Number(snapshot.price || 0);
+    const portfolioValue = Number(snapshot.portfolio?.totalQuoteValue);
+    if (!Number.isFinite(at.getTime()) || price <= 0 || !Number.isFinite(portfolioValue) || portfolioValue <= 0) continue;
+    const hour = at.toISOString().slice(0, 13);
+    if (!byHour.has(hour)) byHour.set(hour, { at: at.toISOString(), price, portfolioValue });
+  }
+  return Array.from(byHour.values()).sort((left, right) => left.at.localeCompare(right.at));
+}
+
+function buildCashFlowRows(cashFlows, performanceHistory, config) {
+  return cashFlows.map((flow) => {
+    const asset = String(flow.asset || "").toUpperCase();
+    let quoteValue = Number(flow.quoteValue);
+    if (!Number.isFinite(quoteValue) || quoteValue <= 0) {
+      if (asset === String(config.quoteAsset || "").toUpperCase()) {
+        quoteValue = Number(flow.amount || 0);
+      } else if (asset === String(config.baseAsset || "").toUpperCase()) {
+        const point = nearestHistoryPoint(performanceHistory, flow.at);
+        quoteValue = point ? Number(flow.amount || 0) * Number(point.price || 0) : null;
+      } else {
+        quoteValue = null;
+      }
+    }
+    return { ...flow, quoteValue };
+  });
+}
+
+function nearestHistoryPoint(history, at) {
+  const target = new Date(at || "").getTime();
+  if (!Number.isFinite(target) || !history.length) return null;
+  let best = history[0];
+  let bestDistance = Math.abs(new Date(best.at).getTime() - target);
+  for (const point of history) {
+    const distance = Math.abs(new Date(point.at).getTime() - target);
+    if (distance >= bestDistance) continue;
+    best = point;
+    bestDistance = distance;
+  }
+  return best;
 }
 
 function chartSourcePoints({ snapshots, priceHistory }) {

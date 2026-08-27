@@ -86,6 +86,52 @@ export function appendPriceHistorySqlite(logDir, row) {
   });
 }
 
+export function upsertCashFlowSqlite(logDir, flow) {
+  const db = openSqlite(logDir);
+  if (!db) return false;
+  const result = db.prepare(`
+    INSERT OR IGNORE INTO cash_flows
+      (external_id, at, direction, asset, amount, quote_value, source, note, raw_json)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    String(flow.externalId || ""),
+    flow.at || new Date().toISOString(),
+    String(flow.direction || "").toUpperCase(),
+    String(flow.asset || "").toUpperCase(),
+    Math.abs(Number(flow.amount || 0)),
+    Number.isFinite(Number(flow.quoteValue)) ? Math.abs(Number(flow.quoteValue)) : null,
+    flow.source || "manual",
+    flow.note || "",
+    JSON.stringify(flow.raw || null)
+  );
+  return Number(result.changes || 0) > 0;
+}
+
+export function deleteManualCashFlowSqlite(logDir, id) {
+  const db = openSqlite(logDir);
+  if (!db) return false;
+  return Number(db.prepare("DELETE FROM cash_flows WHERE id = ? AND source = 'manual'").run(Number(id)).changes || 0) > 0;
+}
+
+export function readCashFlowsSqlite(logDir) {
+  const db = openSqlite(logDir);
+  if (!db) return [];
+  return db.prepare(`
+    SELECT id, external_id, at, direction, asset, amount, quote_value, source, note
+    FROM cash_flows ORDER BY at, id
+  `).all().map((row) => ({
+    id: Number(row.id),
+    externalId: row.external_id,
+    at: row.at,
+    direction: row.direction,
+    asset: row.asset,
+    amount: Number(row.amount),
+    quoteValue: row.quote_value === null ? null : Number(row.quote_value),
+    source: row.source,
+    note: row.note
+  }));
+}
+
 export function saveStateSqlite(logDir, name, value) {
   runSqliteSafely(logDir, (db) => {
     db.prepare(`
@@ -111,6 +157,7 @@ export function sqliteStats(logDir) {
     snapshots: countRows(db, "snapshots"),
     orderEvents: countRows(db, "order_events"),
     priceHistory: countRows(db, "price_history"),
+    cashFlows: countRows(db, "cash_flows"),
     stateRows: countRows(db, "state")
   };
 }
@@ -153,6 +200,21 @@ function createSchema(db) {
       source TEXT NOT NULL,
       PRIMARY KEY (instrument, hour)
     );
+
+    CREATE TABLE IF NOT EXISTS cash_flows (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      external_id TEXT NOT NULL UNIQUE,
+      at TEXT NOT NULL,
+      direction TEXT NOT NULL CHECK (direction IN ('DEPOSIT', 'WITHDRAWAL')),
+      asset TEXT NOT NULL,
+      amount REAL NOT NULL CHECK (amount > 0),
+      quote_value REAL,
+      source TEXT NOT NULL,
+      note TEXT NOT NULL DEFAULT '',
+      raw_json TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_cash_flows_at ON cash_flows(at);
 
     CREATE TABLE IF NOT EXISTS state (
       name TEXT PRIMARY KEY,

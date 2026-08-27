@@ -9,6 +9,8 @@ import { loadDotEnv } from "./config.js";
 import { DEFAULT_INSTRUMENT_RULES } from "./instrumentRules.js";
 import { extractBalances, extractTickerPrice } from "./portfolio.js";
 import { buildDashboardPayload } from "./webData.js";
+import { manualCashFlowId } from "./cashFlows.js";
+import { deleteManualCashFlowSqlite, upsertCashFlowSqlite } from "./sqliteStore.js";
 
 loadDotEnv(path.resolve(".env.web"));
 
@@ -139,6 +141,14 @@ async function handleRequest(req, res) {
     return sendJson(res, 200, buildReportsPayload());
   }
 
+  if (req.method === "POST" && pathname === "/api/cash-flows") {
+    return handleCashFlowCreate(req, res);
+  }
+
+  if (req.method === "POST" && pathname === "/api/cash-flows/delete") {
+    return handleCashFlowDelete(req, res);
+  }
+
   if (req.method === "GET" && pathname === "/api/instrument-rules") {
     return handleInstrumentRules(url, res);
   }
@@ -206,6 +216,41 @@ async function handleServiceControl(req, res) {
     action,
     active: serviceIsActive(pair.serviceName)
   });
+}
+
+async function handleCashFlowCreate(req, res) {
+  const body = await readJsonBody(req);
+  const pair = dashboardPair(String(body.instrument || ""));
+  const direction = String(body.direction || "").toUpperCase();
+  const asset = String(body.asset || pair.quoteAsset || "").trim().toUpperCase();
+  const amount = Math.abs(Number(body.amount));
+  const quoteValue = Math.abs(Number(body.quoteValue));
+  const at = new Date(body.at || "");
+  const note = String(body.note || "").trim().slice(0, 200);
+  if (!['DEPOSIT', 'WITHDRAWAL'].includes(direction)) throw httpError(400, "Direction must be DEPOSIT or WITHDRAWAL");
+  if (!asset || !/^[A-Z0-9_.-]{2,20}$/.test(asset)) throw httpError(400, "Invalid asset");
+  if (!Number.isFinite(amount) || amount <= 0) throw httpError(400, "Amount must be greater than zero");
+  if (!Number.isFinite(quoteValue) || quoteValue <= 0) throw httpError(400, `Value in ${pair.quoteAsset} must be greater than zero`);
+  if (!Number.isFinite(at.getTime()) || at.getTime() > Date.now() + 60000) throw httpError(400, "Invalid cash-flow time");
+  const flow = { at: at.toISOString(), direction, asset, amount, quoteValue, source: "manual", note };
+  flow.externalId = manualCashFlowId(flow);
+  if (!upsertCashFlowSqlite(path.resolve(pair.logDir), flow)) throw httpError(500, "Cash flow was not saved");
+  return sendJson(res, 200, { ok: true, cashFlow: flow });
+}
+
+async function handleCashFlowDelete(req, res) {
+  const body = await readJsonBody(req);
+  const pair = dashboardPair(String(body.instrument || ""));
+  const id = Number(body.id);
+  if (!Number.isInteger(id) || id <= 0) throw httpError(400, "Invalid cash-flow id");
+  if (!deleteManualCashFlowSqlite(path.resolve(pair.logDir), id)) throw httpError(404, "Manual cash flow not found");
+  return sendJson(res, 200, { ok: true, id });
+}
+
+function dashboardPair(instrument) {
+  const pair = buildDashboardPayload().pairs.find((item) => item.instrument === instrument);
+  if (!pair) throw httpError(404, "Pair not found");
+  return pair;
 }
 
 async function handleSettingsPreview(req, res) {

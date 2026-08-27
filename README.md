@@ -129,6 +129,8 @@ The current dashboard can show:
 - combined CRO/BTC overview, total portfolio value, daily P/L, realized P/L, unrealized P/L and annualized P/L including sold dust,
 - separate pair detail pages with last price, next sell price, average open price, balances, open/closed batches, recent orders and dust bank,
 - price chart with real buy/sell markers and range switches (`24h`, `3d`, `7d`, `30d`, `year`, `all`),
+- strategy vs. buy-and-hold percentage comparison from a selectable start date (defaults to the first tracked portfolio snapshot),
+- cash-flow-adjusted performance using automatically imported or manually recorded deposits and withdrawals,
 - maker order statistics with fill rate, cancel rate, active count and other statuses,
 - health/alerts page with systemd status, last tick age, stale maker checks and recent redacted error-like journal lines,
 - settings view per pair with important fields grouped first, editable whitelisted non-secret strategy fields, disabled/default fields that can be explicitly enabled, diff preview, risk warnings, `.env` backup and service restart,
