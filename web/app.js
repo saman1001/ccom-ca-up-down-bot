@@ -462,7 +462,7 @@ function performanceComparisonCard(pair) {
         ${kpi("Čistý cash flow", signedMoney(deposits - withdrawals), "vklady mínus výbery", deposits - withdrawals)}
       </div>` : `<div class="empty">Pre zvolený dátum nie je dostatočne dlhé obdobie na porovnanie.</div>`}
       <div class="chart-note">Výnos je očistený o vklady a výbery metódou Modified Dietz. Buy & Hold dostáva rovnaké cash flow v rovnakých časoch.</div>
-      ${cashFlowEditor(pair, periodFlows)}
+      ${cashFlowEditor(pair, pair.cashFlows || [], periodFlows.length)}
     </div>
   </div>`;
 }
@@ -514,9 +514,9 @@ function nearestPerformancePoint(history, targetMs) {
   }, null);
 }
 
-function cashFlowEditor(pair, flows) {
+function cashFlowEditor(pair, flows, periodCount) {
   return `<div class="cash-flow-section">
-    <div class="mini-title">Vklady a výbery v období</div>
+    <div class="mini-title">Všetky evidované vklady a výbery <span class="muted">· ${flows.length} celkovo · ${periodCount} vo vybranom období</span></div>
     <form class="cash-flow-form" data-cash-flow-form="${pair.instrument}">
       <select name="direction" aria-label="Typ pohybu"><option value="DEPOSIT">Vklad</option><option value="WITHDRAWAL">Výber</option></select>
       <input name="at" type="datetime-local" value="${localDateTimeValue(new Date())}" max="${localDateTimeValue(new Date())}" required aria-label="Dátum a čas">
