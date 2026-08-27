@@ -7,6 +7,7 @@ const state = {
   chartRange: "7d",
   dailyRange: "7d",
   performanceStartDates: {},
+  performanceEndDates: {},
   settingsPair: "BTC_USD",
   settingsPreview: null,
   settingsMessage: null,
@@ -431,10 +432,12 @@ function performanceComparisonCard(pair) {
   const firstAvailable = history[0].at.slice(0, 10);
   const lastAvailable = history.at(-1).at.slice(0, 10);
   const selectedDate = state.performanceStartDates[pair.instrument] || firstAvailable;
+  const selectedEndDate = state.performanceEndDates[pair.instrument] || lastAvailable;
   const selectedMs = new Date(`${selectedDate}T00:00:00Z`).getTime();
+  const selectedEndMs = new Date(`${selectedEndDate}T23:59:59.999Z`).getTime();
   const start = history.find((row) => new Date(row.at).getTime() >= selectedMs) || null;
-  const end = history.at(-1);
-  const valid = start && start !== end && start.price > 0 && start.portfolioValue > 0;
+  const end = [...history].reverse().find((row) => new Date(row.at).getTime() <= selectedEndMs) || null;
+  const valid = start && end && start !== end && new Date(start.at) < new Date(end.at) && start.price > 0 && start.portfolioValue > 0;
   const periodFlows = valid ? cashFlowsInPeriod(pair.cashFlows || [], start.at, end.at) : [];
   const deposits = periodFlows.filter((flow) => flow.direction === "DEPOSIT").reduce((sum, flow) => sum + flow.quoteValue, 0);
   const withdrawals = periodFlows.filter((flow) => flow.direction === "WITHDRAWAL").reduce((sum, flow) => sum + flow.quoteValue, 0);
@@ -448,8 +451,10 @@ function performanceComparisonCard(pair) {
     <div class="card-head">
       <h2>Strategy vs Buy & Hold</h2><span class="sub">${periodLabel}</span>
       <div class="head-right performance-tools">
-        <label>Od <input type="date" data-performance-start="${pair.instrument}" value="${escapeHtml(selectedDate)}" min="${firstAvailable}" max="${lastAvailable}"></label>
+        <label>Od <input type="date" data-performance-start="${pair.instrument}" value="${escapeHtml(selectedDate)}" min="${firstAvailable}" max="${selectedEndDate}"></label>
+        <label>Do <input type="date" data-performance-end="${pair.instrument}" value="${escapeHtml(selectedEndDate)}" min="${selectedDate}" max="${lastAvailable}"></label>
         <button class="btn" type="button" data-performance-reset="${pair.instrument}">Od začiatku</button>
+        <button class="btn" type="button" data-performance-end-reset="${pair.instrument}">Do dnes</button>
       </div>
     </div>
     <div class="card-body">
@@ -1431,9 +1436,21 @@ function bindEvents() {
       render();
     });
   });
+  document.querySelectorAll("[data-performance-end]").forEach((input) => {
+    input.addEventListener("change", () => {
+      state.performanceEndDates[input.dataset.performanceEnd] = input.value;
+      render();
+    });
+  });
   document.querySelectorAll("[data-performance-reset]").forEach((button) => {
     button.addEventListener("click", () => {
       delete state.performanceStartDates[button.dataset.performanceReset];
+      render();
+    });
+  });
+  document.querySelectorAll("[data-performance-end-reset]").forEach((button) => {
+    button.addEventListener("click", () => {
+      delete state.performanceEndDates[button.dataset.performanceEndReset];
       render();
     });
   });
