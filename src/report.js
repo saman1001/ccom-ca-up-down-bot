@@ -64,7 +64,7 @@ function buildReportData({ config, batches, dustBank, snapshots, orderEvents = [
   const totalOpenQuantity = openBatches.reduce((sum, batch) => sum + batch.quantity, 0);
   const totalOpenCost = openBatches.reduce((sum, batch) => sum + batch.quantity * batch.averagePrice, 0);
   const avgOpenPrice = totalOpenQuantity > 0 ? totalOpenCost / totalOpenQuantity : 0;
-  const nextSellPrice = nextOpenBatchSellPrice(openBatches, config.takeProfitRisePct);
+  const nextSellPrice = nextOpenBatchSellPrice(openBatches, config.takeProfitRisePct, config.dustSellQuantity);
   const closedStats = buildClosedBatchStats(closedBatches, lastPrice);
   const dailySummaries = buildDailySummaries(closedBatches, dustBank);
   const orders = extractOrders({ snapshots, orderEvents });
@@ -154,9 +154,10 @@ function buildClosedBatchStats(closedBatches, lastPrice) {
   });
 }
 
-function nextOpenBatchSellPrice(openBatches, takeProfitRisePct) {
+function nextOpenBatchSellPrice(openBatches, takeProfitRisePct, minimumQuantity = 0) {
   const multiplier = 1 + Math.abs(Number(takeProfitRisePct || 0)) / 100;
   const prices = openBatches
+    .filter((batch) => Number(batch.quantity || 0) >= Number(minimumQuantity || 0))
     .map((batch) => Number(batch.averagePrice || 0) * multiplier)
     .filter((price) => Number.isFinite(price) && price > 0);
   return prices.length ? Math.min(...prices) : null;

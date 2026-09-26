@@ -99,6 +99,7 @@ function configFromEnvFile(envFile) {
     dryRun: boolValue(env.DRY_RUN, true),
     enableTrading: boolValue(env.ENABLE_TRADING, false),
     takeProfitRisePct: numberValue(env.TAKE_PROFIT_RISE_PCT, 5),
+    dustSellQuantity: numberValue(env.DUST_SELL_QUANTITY, 20),
     safeSettings: withCredentialStatus(pickSafeSettings(env, { instrument, baseAsset, quoteAsset, logDir }), env)
   };
 }
@@ -231,7 +232,7 @@ function buildReportData({ config, batches, dustBank, snapshots, priceHistory, o
   const totalOpenQuantity = openBatches.reduce((sum, batch) => sum + Number(batch.quantity || 0), 0);
   const totalOpenCost = openBatches.reduce((sum, batch) => sum + Number(batch.quantity || 0) * Number(batch.averagePrice || 0), 0);
   const avgOpenPrice = totalOpenQuantity > 0 ? totalOpenCost / totalOpenQuantity : 0;
-  const nextSellPrice = nextOpenBatchSellPrice(openBatches, config.takeProfitRisePct);
+  const nextSellPrice = nextOpenBatchSellPrice(openBatches, config.takeProfitRisePct, config.dustSellQuantity);
   const closedStats = buildClosedBatchStats(closedBatches, lastPrice);
   const annualizedStats = buildAnnualizedStats({ closedStats, dustBank });
   const orders = extractOrders({ snapshots, orderEvents });
@@ -349,9 +350,10 @@ function buildSoldDustStats(dustBank) {
   };
 }
 
-function nextOpenBatchSellPrice(openBatches, takeProfitRisePct) {
+function nextOpenBatchSellPrice(openBatches, takeProfitRisePct, minimumQuantity = 0) {
   const multiplier = 1 + Math.abs(Number(takeProfitRisePct || 0)) / 100;
   const prices = openBatches
+    .filter((batch) => Number(batch.quantity || 0) >= Number(minimumQuantity || 0))
     .map((batch) => Number(batch.averagePrice || 0) * multiplier)
     .filter((price) => Number.isFinite(price) && price > 0);
   return prices.length ? Math.min(...prices) : null;

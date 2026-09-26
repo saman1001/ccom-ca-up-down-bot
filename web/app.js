@@ -453,6 +453,7 @@ function performanceComparisonCard(pair) {
       <div class="head-right performance-tools">
         <label>Od <input type="date" data-performance-start="${pair.instrument}" value="${escapeHtml(selectedDate)}" min="${firstAvailable}" max="${selectedEndDate}"></label>
         <label>Do <input type="date" data-performance-end="${pair.instrument}" value="${escapeHtml(selectedEndDate)}" min="${selectedDate}" max="${lastAvailable}"></label>
+        <button class="btn" type="button" data-performance-month="${pair.instrument}" data-first-available="${firstAvailable}" data-last-available="${lastAvailable}">1 mes.</button>
         <button class="btn" type="button" data-performance-reset="${pair.instrument}">Od začiatku</button>
         <button class="btn" type="button" data-performance-end-reset="${pair.instrument}">Do dnes</button>
       </div>
@@ -1442,6 +1443,14 @@ function bindEvents() {
       render();
     });
   });
+  document.querySelectorAll("[data-performance-month]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const instrument = button.dataset.performanceMonth;
+      state.performanceStartDates[instrument] = oneMonthBefore(button.dataset.lastAvailable, button.dataset.firstAvailable);
+      state.performanceEndDates[instrument] = button.dataset.lastAvailable;
+      render();
+    });
+  });
   document.querySelectorAll("[data-performance-reset]").forEach((button) => {
     button.addEventListener("click", () => {
       delete state.performanceStartDates[button.dataset.performanceReset];
@@ -1555,6 +1564,16 @@ function bindEvents() {
     });
   });
   document.querySelector("[data-refresh]")?.addEventListener("click", init);
+}
+
+function oneMonthBefore(dateString, minimumDate) {
+  const end = new Date(`${dateString}T00:00:00Z`);
+  const day = end.getUTCDate();
+  end.setUTCDate(1);
+  end.setUTCMonth(end.getUTCMonth() - 1);
+  const lastDay = new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth() + 1, 0)).getUTCDate();
+  end.setUTCDate(Math.min(day, lastDay));
+  return [end.toISOString().slice(0, 10), minimumDate].sort().at(-1);
 }
 
 async function checkInstrumentRules() {
