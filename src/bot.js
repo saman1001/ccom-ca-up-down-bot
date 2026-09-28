@@ -5,7 +5,7 @@ import { extractBalances, extractTickerPrice, portfolioValue } from "./portfolio
 import { buildOrder, decide } from "./strategy.js";
 import { appendSnapshot, ensureLogDir, readPreviousSnapshot } from "./storage.js";
 import { addDust, loadDustBank, saveDustBank, subtractDust } from "./dustBank.js";
-import { loadInstrumentRules } from "./instrumentRules.js";
+import { loadInstrumentRules, roundDownQuantity } from "./instrumentRules.js";
 import { applyMakerPricesToPlan } from "./makerOrders.js";
 import { generateReport } from "./report.js";
 import {
@@ -203,7 +203,8 @@ async function runBatchStrategy({ client, config, snapshot }) {
     });
     result.nextSellPrice = nextOpenBatchSellPrice(
       result.simulatedBatches.filter((batch) => batch.status === "OPEN"),
-      config.takeProfitRisePct
+      config.takeProfitRisePct,
+      instrumentRules
     );
     return result;
   }
@@ -469,16 +470,22 @@ async function runBatchStrategy({ client, config, snapshot }) {
   result.openBatchesAfter = updatedBatches.filter((batch) => batch.status === "OPEN").length;
   result.nextSellPrice = nextOpenBatchSellPrice(
     updatedBatches.filter((batch) => batch.status === "OPEN"),
-    config.takeProfitRisePct
+    config.takeProfitRisePct,
+    instrumentRules
   );
   result.dustBankAfter = updatedDustBank.quantity || 0;
   return result;
 }
 
-function nextOpenBatchSellPrice(openBatches, takeProfitRisePct) {
+function nextOpenBatchSellPrice(openBatches, takeProfitRisePct, instrumentRules) {
   const multiplier = 1 + Math.abs(Number(takeProfitRisePct || 0)) / 100;
   const prices = openBatches
-    .map((batch) => Number(batch.averagePrice || 0) * multiplier)
+    .map((batch) => ({
+      price: Number(batch.averagePrice || 0) * multiplier,
+      quantity: roundDownQuantity(Number(batch.quantity || 0), instrumentRules)
+    }))
+    .filter(({ price, quantity }) => quantity > 0 && !(Number(instrumentRules.minNotional || 0) > 0 && quantity * price < Number(instrumentRules.minNotional)))
+    .map(({ price }) => price)
     .filter((price) => Number.isFinite(price) && price > 0);
   return prices.length ? Math.min(...prices) : null;
 }
