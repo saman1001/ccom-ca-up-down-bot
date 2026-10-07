@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { loadConfig } from "./config.js";
+import { assertMarketDataSafe } from "./marketDataSafety.js";
 import { CryptoComClient } from "./cryptoComClient.js";
 import { extractBalances, extractTickerPrice, portfolioValue } from "./portfolio.js";
 import { buildOrder, decide } from "./strategy.js";
@@ -880,28 +881,6 @@ function validateConfig(config) {
   return problems;
 }
 
-function assertMarketDataSafe({ price, portfolio, previous, config }) {
-  if (!Number.isFinite(price) || price <= 0) {
-    throw new Error(`Suspicious market data: invalid ${config.instrument} price ${price}.`);
-  }
-  for (const [name, value] of Object.entries(portfolio)) {
-    if (!Number.isFinite(value) || value < 0) {
-      throw new Error(`Suspicious balance data: ${name} is ${value}.`);
-    }
-  }
-
-  const previousPrice = Number(previous?.price || 0);
-  const limit = Number(config.maxSuspiciousPriceMovePct || 0);
-  if (previousPrice > 0 && limit > 0) {
-    const movePct = Math.abs((price - previousPrice) / previousPrice) * 100;
-    if (movePct > limit) {
-      throw new Error(
-        `Suspicious market data: ${config.instrument} price moved ${movePct.toFixed(2)}% since last snapshot, above ${limit}%.`
-      );
-    }
-  }
-}
-
 function applyPlanSafetyGuards({ plan, portfolio, price, config }) {
   let remainingQuote = portfolio.quoteAvailable;
   return {
@@ -1412,13 +1391,16 @@ async function watch() {
   const config = loadConfig();
   const intervalMs = Math.max(1, Number(config.checkIntervalMinutes || 60)) * 60 * 1000;
 
-  await runOnce();
-  setInterval(() => {
-    runOnce().catch(async (error) => {
+  const runSafely = async () => {
+    try {
+      await runOnce();
+    } catch (error) {
       console.error(`[${new Date().toISOString()}] ${error.stack || error.message}`);
       await notifyErrorSafely(error);
-    });
-  }, intervalMs);
+    }
+  };
+  await runSafely();
+  setInterval(runSafely, intervalMs);
 }
 
 async function checkConfig() {

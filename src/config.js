@@ -63,6 +63,7 @@ export function loadConfig() {
     forceBaseBuyWeeklyLimit: numberEnv("FORCE_BASE_BUY_WEEKLY_LIMIT", 0),
     minQuoteBalance: numberEnv("MIN_QUOTE_BALANCE", 0),
     maxSuspiciousPriceMovePct: numberEnv("MAX_SUSPICIOUS_PRICE_MOVE_PCT", 25),
+    maxSuspiciousPriceBlockHours: numberEnv("MAX_SUSPICIOUS_PRICE_BLOCK_HOURS", process.env.INSTRUMENT === "NMR_USD" ? 24 : 0),
     averageDownDropPct: numberEnv("AVERAGE_DOWN_DROP_PCT", 10),
     takeProfitRisePct: numberEnv("TAKE_PROFIT_RISE_PCT", 5),
     buyBaseBatchEveryRun: boolEnv("BUY_BASE_BATCH_EVERY_RUN", true),
