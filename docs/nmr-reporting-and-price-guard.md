@@ -1,7 +1,7 @@
 # NMR price guard and email reporting
 
 `MAX_SUSPICIOUS_PRICE_BLOCK_HOURS` controls how long a price-movement block
-lasts. The default is 24 hours for NMR_USD and 0 (no expiry) for other pairs.
+lasts. The default is 168 hours (7 days) for NMR_USD and 0 (no expiry) for other pairs.
 The existing percentage threshold remains unchanged.
 
 The timer starts at the first blocked run after installation, not at the last
