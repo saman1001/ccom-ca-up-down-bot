@@ -5,8 +5,11 @@ import { fileURLToPath } from 'node:url';
 import { loadConfig } from '../src/config.js';
 
 process.chdir(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'));
-process.env.ENV_FILE = '.env.nmr-usd';
+const pair = process.argv.slice(2).find(arg => !arg.startsWith('--')) || 'nmr-usd';
+if (!['nmr-usd', 'btc-usd', 'cro-usd'].includes(pair)) throw new Error('Unsupported reporting pair');
+process.env.ENV_FILE = `.env.${pair}`;
 const config = loadConfig();
+if (config.instrument !== pair.replace('-', '_').toUpperCase()) throw new Error('Reporting configuration does not match the requested pair');
 if (!config.emailReportTo || !config.dailyReportEnabled) process.exit(0);
 const now = new Date();
 const today = now.toISOString().slice(0, 10);
@@ -30,7 +33,7 @@ const header = s => String(s).replace(/[\r\n]/g, ' ');
 const message = [
   `To: ${header(config.emailReportTo)}`,
   `From: ${header(config.emailReportFrom)}`,
-  `Subject: NMR_USD daily bot report${stale ? ' - STALE DATA / BOT BLOCKED' : ''}`,
+  `Subject: ${header(config.instrument)} daily bot report${stale ? ' - STALE DATA / BOT BLOCKED' : ''}`,
   'Content-Type: text/plain; charset=UTF-8', '',
   `Report date (UTC): ${today}`,
   `Last successful snapshot (UTC): ${snapshot.at}`,
@@ -41,11 +44,11 @@ const message = [
   `Open batches: ${snapshot.openBatchesAfter ?? snapshot.openBatchesBefore ?? 'unknown'}`,
   `Next sell price: ${snapshot.nextSellPrice ?? 'n/a'}`,
   `Consecutive failed runs: ${state.consecutiveFailures ?? 0}`,
-  `Last bot error: ${state.lastErrorMessage || 'none'}`,
+  `Last recorded bot error (${state.lastErrorAt || 'n/a'}): ${state.lastErrorMessage || 'none'}`,
   'Fallback email delivery. Trading settings have not been changed.', ''
 ].join('\n');
 if (process.argv.includes('--preview')) { console.log(message); process.exit(0); }
 const result = spawnSync(config.sendmailPath, ['-t'], { input: message, encoding: 'utf8', timeout: 60000 });
 if (result.error || result.status !== 0) { console.error('Email delivery failed; the next timer run will retry.'); process.exit(1); }
 fs.writeFileSync(marker, JSON.stringify({ sentDate: today, sentAt: now.toISOString(), snapshotAt: snapshot.at }) + '\n', { mode: 0o600 });
-console.log('NMR fallback report accepted by mail transport.');
+console.log(`${config.instrument} fallback report accepted by mail transport.`);

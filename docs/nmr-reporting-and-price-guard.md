@@ -16,6 +16,9 @@ on subsequent scheduled runs, avoiding a systemd restart loop.
 ## Email fallback
 
 `scripts/nmr-email-fallback.mjs` uses the private `.env.nmr-usd` email settings.
+Pass `btc-usd` or `cro-usd` as its first argument to use that pair's private
+configuration instead. Each pair has its own delivery state in its log directory.
+The default remains NMR for compatibility with the existing timer.
 It sends a daily fallback when the normal daily report is missing or has a
 logged email failure. Mail delivery has a 60-second timeout. A successful send
 is recorded in `email-fallback-state.json`; failed sends are retried on a later
@@ -46,6 +49,11 @@ Persistent=true
 [Install]
 WantedBy=timers.target
 ```
+
+BTC and CRO use separate `btc-usd-email-fallback` and
+`cro-usd-email-fallback` services/timers with the same schedule, adding
+`RandomizedDelaySec=60` to the timer and the appropriate pair argument to
+`ExecStart`. These reporting-only services do not restart trading bots.
 
 The fallback treats a normal report with no logged email error as sent; this
 does not prove inbox delivery. A crash between logging and delivery can also
