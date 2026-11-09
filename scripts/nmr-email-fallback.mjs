@@ -30,21 +30,24 @@ const snapshots = fs.readFileSync(path.join(config.logDir, 'snapshots.jsonl'), '
 const snapshot = JSON.parse(snapshots.at(-1));
 const stale = now - new Date(snapshot.at) > 90 * 60000;
 const header = s => String(s).replace(/[\r\n]/g, ' ');
+const failures = Number(state.consecutiveFailures) || 0;
 const message = [
   `To: ${header(config.emailReportTo)}`,
   `From: ${header(config.emailReportFrom)}`,
   `Subject: ${header(config.instrument)} daily bot report${stale ? ' - STALE DATA / BOT BLOCKED' : ''}`,
-  'Content-Type: text/plain; charset=UTF-8', '',
+  'MIME-Version: 1.0',
+  'Content-Type: text/plain; charset=UTF-8',
+  'Content-Transfer-Encoding: 8bit', '',
   `Report date (UTC): ${today}`,
   `Last successful snapshot (UTC): ${snapshot.at}`,
   stale ? 'WARNING: These are historical values, not current balances or prices.' : 'Values from the latest completed bot snapshot.',
-  `Price: ${snapshot.price} USD`,
-  `Portfolio value: ${snapshot.portfolio?.totalQuoteValue ?? 'unknown'} USD`,
-  `USD available: ${snapshot.portfolio?.quoteAvailable ?? 'unknown'}`,
+  `Price: ${formatNumber(snapshot.price)} USD`,
+  `Portfolio value: ${formatNumber(snapshot.portfolio?.totalQuoteValue, 2)} USD`,
+  `USD available: ${formatNumber(snapshot.portfolio?.quoteAvailable, 2)} USD`,
   `Open batches: ${snapshot.openBatchesAfter ?? snapshot.openBatchesBefore ?? 'unknown'}`,
-  `Next sell price: ${snapshot.nextSellPrice ?? 'n/a'}`,
-  `Consecutive failed runs: ${state.consecutiveFailures ?? 0}`,
-  `Last recorded bot error (${state.lastErrorAt || 'n/a'}): ${state.lastErrorMessage || 'none'}`,
+  `Next sell price: ${formatNumber(snapshot.nextSellPrice)} USD`,
+  `Consecutive failed runs: ${failures}`,
+  ...(failures > 0 ? [`Current bot error (${header(state.lastErrorAt || 'n/a')}): ${summarizeError(state.lastErrorMessage)}`] : []),
   'Fallback email delivery. Trading settings have not been changed.', ''
 ].join('\n');
 if (process.argv.includes('--preview')) { console.log(message); process.exit(0); }
@@ -52,3 +55,21 @@ const result = spawnSync(config.sendmailPath, ['-t'], { input: message, encoding
 if (result.error || result.status !== 0) { console.error('Email delivery failed; the next timer run will retry.'); process.exit(1); }
 fs.writeFileSync(marker, JSON.stringify({ sentDate: today, sentAt: now.toISOString(), snapshotAt: snapshot.at }) + '\n', { mode: 0o600 });
 console.log(`${config.instrument} fallback report accepted by mail transport.`);
+
+function formatNumber(value, maximumFractionDigits = 8) {
+  if (value === null || value === undefined || value === '') return 'n/a';
+  const number = Number(value);
+  return Number.isFinite(number) ? number.toLocaleString('en-US', { maximumFractionDigits }) : 'n/a';
+}
+
+function summarizeError(value) {
+  let text = String(value || 'Unknown error');
+  // Old notification state can contain a complete upstream HTML error page.
+  const htmlStart = text.search(/<!doctype\b|<\/?[a-z][^>]*>/i);
+  if (htmlStart >= 0) {
+    const reason = text.slice(0, htmlStart).trim().replace(/:\s*$/, '');
+    text = `${reason || 'Upstream error'} (HTML response omitted)`;
+  }
+  text = text.replace(/[\u0000-\u001f\u007f<>]/g, ' ').replace(/\s+/g, ' ').trim();
+  return text.length > 240 ? `${text.slice(0, 237)}...` : text;
+}

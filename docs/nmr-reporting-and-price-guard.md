@@ -25,6 +25,18 @@ is recorded in `email-fallback-state.json`; failed sends are retried on a later
 timer run. Old snapshot values are explicitly marked as stale. It does not call
 trading APIs or change trading settings.
 
+Fallback messages include MIME headers and readable numeric values. The error
+line appears only while consecutive bot failures remain above zero. Historical
+errors stay in the notification state for diagnostics but are omitted from
+recovered reports. Active errors are reduced to one line of at most 240
+characters, omitting any upstream HTML response body.
+
+The formatter-only fix can be deployed with `node scripts/deploy-email-fallback.mjs`.
+Set `EMAIL_FALLBACK_DEPLOY_TARGET` in the private, ignored `.env.deploy` file.
+The script requires the known original checksum, saves a verified backup,
+checks syntax and replaces only the fallback script. It neither sends email
+nor restarts bot services. Repeating an identical deployment is a no-op.
+
 The deployed reporting-only service runs:
 
 ```ini
@@ -65,5 +77,6 @@ not prove inbox delivery.
 ```bash
 node scripts/test-market-data-safety.mjs
 node scripts/test-watch-startup.mjs
+node scripts/test-email-fallback.mjs
 node --check scripts/nmr-email-fallback.mjs
 ```
