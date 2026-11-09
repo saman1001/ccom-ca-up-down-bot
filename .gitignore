@@ -7,3 +7,9 @@ reports/
 backups/
 node_modules/
 *.log
+
+# Internal project context and preserved working copies
+/SPEC.md
+/CURRENT.md
+/INDEX.md
+/_legacy/

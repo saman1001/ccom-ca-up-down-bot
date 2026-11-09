@@ -1,5 +1,7 @@
 # Vyskumne poznamky: hladanie optimalnej strategie
 
+Tento súbor je historický výskumný návrh. Staré označenia TODO nižšie nie sú aktuálny stav implementácie. Platný checklist funkcií je v [ROADMAP.md](../ROADMAP.md).
+
 Cielom je najst rozumne parametre davkovej CRO strategie. Nejde o dokaz zarobku ani financne odporucanie, ale o prakticky experiment s automatizovanou DCA/grid logikou, poplatkami, rizikom a kapitalovou narocnostou.
 
 ## Zakladna otazka

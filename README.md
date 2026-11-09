@@ -35,16 +35,16 @@ The bot can:
 - store hourly price history for later backtests,
 - generate dashboards and CSV reports.
 
-Current common setup uses two independent pairs:
+The default configuration examples use two independent pairs:
 
 - `CRO_USD`, with logs in `logs/cro-usd`,
 - `BTC_USD`, with logs in `logs/btc-usd`.
 
-Each pair should use its own env file, own log directory, and ideally its own Crypto.com subaccount/API key.
+Each pair should use its own env file, own log directory, and ideally its own Crypto.com subaccount/API key. Additional pairs, including NMR/USD, are supported through separate configurations.
 
 ## Requirements
 
-- Node.js 20 or newer
+- Node.js with native SQLite support (`node:sqlite`), version >=22.5 as declared in `package.json`
 - Crypto.com Exchange API key
 - On VPS/systemd: IPv4 DNS preference for Crypto.com IP whitelisting
 
@@ -122,7 +122,7 @@ Recommended path:
 
 ## Private Web Dashboard
 
-The project includes a private web dashboard with login. It does not place orders or call the Crypto.com API. It can edit only whitelisted non-secret strategy settings, shows a diff before saving, creates an automatic `.env` backup, and restarts only the matching bot service after confirmation. It is intentionally built with plain Node.js, HTML, CSS and browser JavaScript; no React and no runtime npm dependencies are required.
+The project includes a private web dashboard with login. It does not submit trading orders itself. Configuration workflows call the Crypto.com API to read instrument rules and validate account balances and credentials. It can edit only whitelisted non-secret strategy settings, shows a diff before saving, creates an automatic `.env` backup, and restarts only the matching bot service after confirmation. It is intentionally built with plain Node.js, HTML, CSS and browser JavaScript; no React and no runtime npm dependencies are required.
 
 The current dashboard can show:
 
@@ -515,21 +515,17 @@ src/health.js           Basic health check for env/log freshness
 src/backup-logs.js      Local log backup helper
 src/rotate-logs.js      Snapshot log rotation helper
 scripts/generate-reports.sh
+scripts/nmr-email-fallback.mjs  Reporting-only fallback for NMR, BTC and CRO
+scripts/test-*.mjs       Offline regression checks
+ROADMAP.md              Feature checklist
+docs/                   Operational and research notes
 reports/                Generated local reports, do not commit private output
 logs/                   Runtime logs, do not commit
 ```
 
 ## Roadmap Ideas
 
-Planned or possible improvements:
-
-- stronger access protection for any public dashboard deployment,
-- safe web controls for whitelisted settings with diff, backup and restart flow,
-- safer service controls such as pause/resume/restart after explicit confirmation,
-- PostgreSQL option if the SQLite-backed dashboard outgrows local single-VPS operation,
-- signed fee/rebate accounting for maker rebates,
-- backtests and strategy analysis over stored hourly price history,
-- strategy analysis and write-up.
+The feature checklist and existing research proposals are maintained in [ROADMAP.md](ROADMAP.md). Operational notes are in [docs/vps-operations.md](docs/vps-operations.md), and fallback email behavior and deployment are described in [docs/nmr-reporting-and-price-guard.md](docs/nmr-reporting-and-price-guard.md).
 
 ## Disclaimer
 
